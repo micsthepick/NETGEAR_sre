@@ -1,0 +1,2 @@
+- investigate how existing stat and lstat compat hooks work
+- test the code on ls (running with QEMU_STRACE) if needed
