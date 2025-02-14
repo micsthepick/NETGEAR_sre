@@ -11,8 +11,13 @@
 #define DEBUG_PRINTENV 0
 #endif
 
+#ifndef DEBUG_PRINTARG
+#define DEBUG_PRINTARG 1
+#endif
+
 #define P_TARGET stderr
 #define P(...) (fprintf(P_TARGET, "fw_hacks: "), fprintf(P_TARGET, __VA_ARGS__))
+#define SS(s) (s ? s : "<NULL>")
 
 #define SETUP_INJECT(f) (real_##f = dlsym(RTLD_NEXT, #f), (real_##f == 0) ? (P("%s failed to inject!\n", #f), 0) : 1)
 
@@ -23,28 +28,38 @@ static int (*real_open)() = NULL;
 static int (*real_execve)() = NULL;
 static int (*real___stat_time64)(const char *, struct stat *) = NULL;
 static int (*real___libc_start_main)() = NULL;
+static FILE* (*real_fopen)() = NULL;
 
 static int is_injected = 0;
 
 static char *progname = NULL;
 
 #define progname_safe (progname ? progname : "unknown program!")
-//static int (*real___xstat)(int, const char *, stat_t *) = NULL;
-//static int (*real___lxstat)(int, const char *, stat_t *) = NULL;
 
+
+void dbgprintstrp(char* const* strp, char * pre) {
+    size_t strp_size = 0;
+    while (strp && strp[strp_size]) {
+        P("%s: %s\n", pre, strp[strp_size]);
+        strp_size++;
+    }
+}
 
 void dbgprintenv(char* const* envp) {
-    size_t env_size = 0;
-    while (envp && envp[env_size]) {
-        P("EXECVE env: %s\n", envp[env_size]);
-        env_size++;
-    }
+    dbgprintstrp(envp, "env var");
+}
+
+void dbgprintargv(char* const* argv) {
+    dbgprintstrp(argv, "argument");
 }
 
 int main_hook(int argc, char** argv, char** envp) {
     int res = -1;
 #if DEBUG_PRINTENV
     dbgprintenv(envp);
+#endif
+#if DEBUG_PRINTARG
+    dbgprintargv(argv);
 #endif
     if (real_main) {
 	if (is_injected) {
@@ -60,8 +75,14 @@ int main_hook(int argc, char** argv, char** envp) {
 
 void sanitize_path(char* new_path, const char* pathname) {
     // keep the new_path <= the pathname in size if possible
+    if (pathname == NULL) {
+        return;
+    }
+    if ('/' == *pathname) {
+        while ('/' == pathname[1]) { pathname++; }
+    }
     if (strncmp(pathname, "/proc/mtd", 9) == 0 && (pathname[9] == '\0' || pathname[9] == '/')) {
-        sprintf(new_path, "/mtd%s", pathname + 5);
+        sprintf(new_path, "/mtd%s", pathname + 9);
     } else if (strncmp(pathname, "/proc/device-tree", 17) == 0) {
         sprintf(new_path, "/device-tree%s", pathname + 5);
     } else {
@@ -71,7 +92,7 @@ void sanitize_path(char* new_path, const char* pathname) {
 }
 
 int open(const char *pathname, int flags, ...) {
-    P("OPEN(%s,...) called by %s\n", pathname ? pathname : "<NULL>", progname);
+    P("OPEN(%s,...) called by %s\n", SS(pathname), progname);
 
     if (!pathname) return real_open(pathname, flags);
 
@@ -98,10 +119,9 @@ long ptrace(int request, int pid, void *addr, void *data) {
     return 0;
 }
 
-#if 1
 
 int __stat_time64(const char *path, stat_t * buf) {
-    P("intercepted STAT(%s, %p)  called by %s\n", path ? path : "<NULL>", buf, progname_safe);
+    P("intercepted STAT(%s, %p) called by %s\n", SS(path), buf, progname_safe);
     fflush(stdout);
 
     if (!path) return real___stat_time64(path, buf);
@@ -114,49 +134,31 @@ int __stat_time64(const char *path, stat_t * buf) {
     free(new_path);
     return res;
 }
-#endif
 
+FILE * fopen(const char *filename, const char *modes) {
+    P("intercepted FOPEN(%s, %s) called by %s\n", SS(filename), SS(modes), progname_safe);
 
-# if 0
-int statx(int dirfd, const char *restrict path, int flags, unsigned mask, statx_t *restrict stx) {
-    P("intercepted statx(%s)\n", path ? path : "<NULL>");
-    char *new_path = calloc(strlen(path), sizeof(char));
-    int res;
-    if (path) {
-        sanitize_path(new_path, path);
-	res = real_statx(dirfd, new_path, flags, mask, stx);
-    } else {
-        res = real_statx(dirfd, path, flags, mask, stx);
-    }
+    if (!filename) return real_fopen(filename, modes);
+    char *new_path = calloc(strlen(filename), sizeof(char));
+    sanitize_path(new_path, filename);
+
+    FILE *res = real_fopen(filename, modes);
     free(new_path);
+
     return res;
 }
 
-int __lxstat(int ver, const char *path, struct stat *buf) {
-    P("intercepted __xstat(%s)\n", path ? path : "<NULL>"); 
-    char *new_path = calloc(strelen(path), sizeof(char));
-    if (path) sanitize_path(new_path, path);
-    int res = real___lxstat(ver, path ? new_path : NULL, buf);
-    free(new_path);
-    return res;
-}
-
-int __xstat(int ver, const char *path, struct stat *buf) {
-    P("intercepted __xstat(%s)\n", path ? path : "<NULL>"); 
-    char *new_path = calloc(strlen(path), sizeof(char));
-    if (path) sanitize_path(new_path, path);
-    int res = real___xstat(ver, path ? new_path : NULL, buf);
-    free(new_path);
-    return res;
-}
-#endif
-
+#if 0
 int execve(const char *pathname, char *const argv[], char *const envp[]) {
     P("intercepted EXECVE: %s\n", pathname ? pathname : "<NULL>");
 
     const char *ld_preload = "LD_PRELOAD=/fw_hacks.so";
 #if DEBUG_PRINTENV
     dbgprintenv(envp);
+#endif
+
+#if DEBUG_PRINTARG
+    dbgprintargv(argv);
 #endif
 
 #if 0
@@ -185,6 +187,7 @@ int execve(const char *pathname, char *const argv[], char *const envp[]) {
     int result = real_execve(pathname, argv, envp);
     return result;
 }
+#endif
 
 int __libc_start_main(
         int (*main_orig)(int, char **, char **),
@@ -204,6 +207,7 @@ int __libc_start_main(
         SETUP_INJECT(open)
         & SETUP_INJECT(execve)
         & SETUP_INJECT(__stat_time64)
+        & SETUP_INJECT(fopen)
     ) {
         is_injected = 1;
         if (argc && argv && *argv) {
