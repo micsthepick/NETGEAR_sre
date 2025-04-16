@@ -196,7 +196,7 @@ int __libc_start_main(
         void (*fini)(void),
         void (*rtld_fini)(void),
         void *stack_end) {
-    P("__libc_start_main()\n"); 
+    P("__libc_start_main()\n");
     real___libc_start_main = dlsym(RTLD_NEXT,"__libc_start_main");
     if (!real___libc_start_main ) {
         P("cannot inject orig libc start main!!!");
