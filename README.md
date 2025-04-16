@@ -18,6 +18,16 @@ sudo cp $(which qemu-arm-static) squashfs-root/$(which qemu-arm-static)
 
 to put the arm binary in place
 
+if at this point you still don't have the capability to chroot, then
+ensure `/etc/binfmt.d/` or `/usr/lib/binfmt.d/` contains `qemu-arm.conf`:
+```
+:qemu-arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:./scratch/usr/local/bin/qemu-arm:
+```
+then try
+```
+sudo systemctl reload systemd-binfmt
+```
+
 ## chroot
 now you can start doing the chroot,
 first you must create /dev/null and others:
@@ -716,7 +726,7 @@ let's try just mounting /proc
 
 script: mounts_for_fw_pack.sh
 ```
-sudo mkdir -p squashfs_root_bb/procw
+sudo mkdir -p squashfs_root_bb/proc
 sudo mount --bind /dev/urandom /home/mike/NETGEAR_sre/squashfs_root_bb/dev/urandom
 sudo mount --bind /dev/random /home/mike/NETGEAR_sre/squashfs_root_bb/dev/random
 sudo mount --bind /proc squashfs_root_bb/proc
