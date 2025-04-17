@@ -87,9 +87,9 @@ long ptrace(int request, int pid, void *addr, void *data) {
 
 an explanation:
 
-> first we define _GNU_SOURCE - this is needed to have some of the internal GNU symbols like RTLD_NEXT
+> first we define `_GNU_SOURCE` - this is needed to have some of the internal GNU symbols like `RTLD_NEXT`
 > next we include some standard headers for string and file operations, but interestingly, we include dlfcn.h
-> this will allow us to do the actual LD_PRELOAD system call overrides by calling the function returned by dlsym
+> this will allow us to do the actual `LD_PRELOAD` system call overrides by calling the function returned by dlsym
 
 > our first override is open, which conditionally just passes to open, or if the prefix is /proc/mtd, then it diverts to a new prefix, /mtd
 > the second one just stubs out the ptrace call and pretends like everything worked fine.
@@ -455,12 +455,14 @@ Assertion failed: errno != ESNULLP (dni_safeclib.c: dni_fscanf_s: 210)
 ```
 
 so it wants to have a ppp0 interface. Rather then fighting with interfaces and the QEMU networking stack, I'll just stub out those files.
+```
 ./run_args.sh tee /etc/ppp/ppp0-status <<< "1"
 ./run_args.sh tee /tmp/port_status <<< "1"
+```
 
 but the problem persists?
 After a bit of investigation / reverse engineering I stumbled on this: https://tbrindus.ca/correct-ld-preload-hooking-libc/
-after a quick patch to my LD_PRELOAD lib:
+after a quick patch to my `LD_PRELOAD` lib:
 
 ```
 #define _GNU_SOURCE
@@ -500,7 +502,7 @@ static int is_injected = 0;
 static char *progname = NULL;
 
 #define progname_safe (progname ? progname : "unknown program!")
-
+/
 
 void dbgprintstrp(char* const* strp, char * pre) {
     size_t strp_size = 0;
@@ -676,10 +678,13 @@ int __libc_start_main(
 }
 ```
 
-I can see that it's still trying to load stuff from /proc - fw_hacks: intercepted FOPEN(/proc/net/if_inet6, r) called by /usr/sbin/net-cgi
+I can see that it's still trying to load stuff from /proc - `fw_hacks`:
+```
+intercepted FOPEN(/proc/net/if_inet6, r) called by /usr/sbin/net-cgi
+```
 let's stub that out too:
 
-sanitize_path
+sanitize\_path
 ```
 void sanitize_path(char* new_path, const char* pathname) {
     // keep the new_path <= the pathname in size if possible
@@ -724,10 +729,19 @@ now fopen and open are essentailly doing the same job, but just in case I'll lea
 
 let's try just mounting /proc
 
-script: mounts_for_fw_pack.sh
+script: `mounts_for_fw_pack.sh`
 ```
 sudo mkdir -p squashfs_root_bb/proc
 sudo mount --bind /dev/urandom /home/mike/NETGEAR_sre/squashfs_root_bb/dev/urandom
 sudo mount --bind /dev/random /home/mike/NETGEAR_sre/squashfs_root_bb/dev/random
 sudo mount --bind /proc squashfs_root_bb/proc
+```
+
+script: first_startup.sh  
+```
+sudo env SHELL=/bin/sh PATH=/usr/bin:/usr/sbin:/sbin:/bin chroot squashfs_root_bb /bin/mknod -m 666 /dev/null c 1 3
+echo -n "Base" | sudo tee squashfs_root_bb/tmp/orbi_type >/dev/null
+test ! -e squashfs_root_bb/lib/libc.so.bak && sudo mv squashfs_root_bb/lib/libc.so squashfs_root_bb/lib/libc.so.bak
+sudo cp arm-unknown-linux-musleabi/arm-unknown-linux-musleabi/sysroot/usr/lib/libc.so squashfs_root_bb/lib/libc.so
+echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4"
 ```
