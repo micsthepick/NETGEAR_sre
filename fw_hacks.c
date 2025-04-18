@@ -121,13 +121,13 @@ int open(const char *pathname, int flags, ...) {
 }
 
 long ptrace(int request, int pid, void *addr, void *data) {
-    P("intercepted PTRACE_request{%d}_pid{%d}_addr{%p}_data{%p} called by %s\n", request, pid, addr, data, progname_safe);
+    P("intercepted ptrace(request={%d},pid={%d},=addr{%p},=data{%p} called by %s\n", request, pid, addr, data, progname_safe);
     return 0;
 }
 
 
 int __stat_time64(const char *path, stat_t * buf) {
-    P("intercepted STAT(%s, %p) called by %s\n", SS(path), buf, progname_safe);
+    P("intercepted stat(%s, %p) called by %s\n", SS(path), buf, progname_safe);
     fflush(stdout);
 
     if (!path) return real___stat_time64(path, buf);
@@ -142,7 +142,7 @@ int __stat_time64(const char *path, stat_t * buf) {
 }
 
 FILE * fopen(const char *filename, const char *modes) {
-    P("intercepted FOPEN(%s, %s) called by %s\n", SS(filename), SS(modes), progname_safe);
+    P("intercepted fopen(%s, %s) called by %s\n", SS(filename), SS(modes), progname_safe);
 
     if (!filename) return real_fopen(filename, modes);
     char *new_path = calloc(strlen(filename), sizeof(char));
@@ -156,11 +156,9 @@ FILE * fopen(const char *filename, const char *modes) {
 
 void decode_sockaddr(const void* addr, socklen_t len) {
     if (!addr || len < sizeof(sa_family_t)) {
-        P("Invalid sockaddr (null or too small)\n");
+        P("connect() Invalid sockaddr (null or too small)\n");
         return;
     }
-
-    P("connect - TESTTEMP\n");
 
     const sa_family_t* family = (const sa_family_t*)addr;
 
@@ -169,18 +167,17 @@ void decode_sockaddr(const void* addr, socklen_t len) {
         char ip[INET_ADDRSTRLEN] = {0};
         inet_ntop(AF_INET, &(sin->sin_addr), ip, sizeof(ip));
         uint16_t port = ntohs(sin->sin_port);
-        P("connect - Decoded sockaddr: IPv4 %s:%d\n", ip, port);
+        P("connect() Decoded sockaddr: IPv4 %s:%d\n", ip, port);
     } else if (*family == AF_UNIX && len >= sizeof(sa_family_t) + 1) {
         const struct sockaddr_un* sun = (const struct sockaddr_un*)addr;
-        P("connect - Decoded sockaddr: UNIX socket path: %s\n", sun->sun_path);
+        P("connect() Decoded sockaddr: UNIX socket path: %s\n", sun->sun_path);
     } else {
-        P("connect - Unknown or unsupported sockaddr family: %d\n", *family);
+        P("connect() Unknown or unsupported sockaddr family: %d\n", *family);
     }
 }
 
 int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen) {
-    P("connect - test");
-    P("intercepted CONNECT(%d, %p, %p) called by %s\n", sockfd, addr, addrlen, progname_safe);
+    P("intercepted connect(%d, %p, %p) called by %s\n", sockfd, addr, addrlen, progname_safe);
     decode_sockaddr(addr, addrlen); 
 
     return real_connect(sockfd, addr, addrlen);
