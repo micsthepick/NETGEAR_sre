@@ -1,5 +1,5 @@
-test ! -e busybox-arm5l && sudo wget https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv5l
-sudo cp busybox-arm5l squashfs_root_bb/bin/busybox
+test ! -e busybox-armv5l && sudo wget https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv5l
+sudo cp busybox-armv5l squashfs_root_bb/bin/busybox
 sudo cp $(which qemu-arm-static) squashfs_root_bb/$(which qemu-arm-static)
 sudo env SHELL=/bin/sh PATH=/usr/bin:/usr/sbin:/sbin:/bin chroot squashfs_root_bb /bin/mknod -m 666 /dev/null c 1 3
 echo -n "Base" | sudo tee squashfs_root_bb/tmp/orbi_type >/dev/null

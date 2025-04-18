@@ -10,7 +10,8 @@ sudo apt-get install qemu-user-binfmt
 sudo apt-get install qemu-system
 ```
 
-use binwalk to extract the squashfs (this article assumes you put the squashfs file in ~/NETGEAR\_sre), and `sudo unsquash` to extract that. Now run:
+use binwalk and python's ubireader to extract the squashfs image,
+then use squashfs-tools-ng to create a tarball called squashfs.tar.gz (`sqfs2tar img-*ubi_rootfs.ubifs > ~/NETGEAR_sre/squashfs.tar.gz`)
 
 ```
 sudo cp $(which qemu-arm-static) squashfs-root/$(which qemu-arm-static)
