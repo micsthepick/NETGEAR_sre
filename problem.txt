@@ -1,0 +1,8 @@
+whilst server running, connecting returns an auth page, where default credentials (which happen to be in
+squashfs_root_bb/etc/config/users) don't work.
+
+IDEA: try to find out when/where it reads from that file:
+    squashfs_root_bb/usr/lib/opkg/info/dni-base-files.list:/etc/config/users - for one
+        appears to be a dead end
+
+Perhaps default creds are no longer applicable?

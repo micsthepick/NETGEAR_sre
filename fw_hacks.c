@@ -6,6 +6,9 @@
 #include <stdarg.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+#include <netinet/in.h>
 
 #ifndef DEBUG_PRINTENV
 #define DEBUG_PRINTENV 0
@@ -26,6 +29,7 @@ typedef struct stat stat_t;
 static int (*real_main)() = NULL;
 static int (*real_open)() = NULL;
 static int (*real_execve)() = NULL;
+static int (*real_connect)() = NULL;
 static int (*real___stat_time64)(const char *, struct stat *) = NULL;
 static int (*real___libc_start_main)() = NULL;
 static FILE* (*real_fopen)() = NULL;
@@ -81,14 +85,16 @@ void sanitize_path(char* new_path, const char* pathname) {
     if ('/' == *pathname) {
         while ('/' == pathname[1]) { pathname++; }
     }
+    int doprint = 1;
     if (strncmp(pathname, "/proc/mtd", 9) == 0 && (pathname[9] == '\0' || pathname[9] == '/')) {
         sprintf(new_path, "/mtd%s", pathname + 9);
     } else if (strncmp(pathname, "/proc/device-tree", 17) == 0) {
         sprintf(new_path, "/device-tree%s", pathname + 5);
     } else {
+	    doprint = 0;
 	    sprintf(new_path, "%s", pathname);
     }
-    P("SANITIZE_PATH: %s -> %s\n", pathname, new_path);
+    if (doprint) P("SANITIZE_PATH: %s -> %s\n", pathname, new_path);
 }
 
 int open(const char *pathname, int flags, ...) {
@@ -148,46 +154,37 @@ FILE * fopen(const char *filename, const char *modes) {
     return res;
 }
 
-#if 0
-int execve(const char *pathname, char *const argv[], char *const envp[]) {
-    P("intercepted EXECVE: %s\n", pathname ? pathname : "<NULL>");
-
-    const char *ld_preload = "LD_PRELOAD=/fw_hacks.so";
-#if DEBUG_PRINTENV
-    dbgprintenv(envp);
-#endif
-
-#if DEBUG_PRINTARG
-    dbgprintargv(argv);
-#endif
-
-#if 0
-    char **new_envp = calloc(env_size + 2, sizeof(char *));
-    if (!new_envp) {
-        perror("calloc failed");
-        return -1;
+void decode_sockaddr(const void* addr, socklen_t len) {
+    if (!addr || len < sizeof(sa_family_t)) {
+        P("Invalid sockaddr (null or too small)\n");
+        return;
     }
 
-    for (size_t i = 0; i < env_size; i++) {
-        new_envp[i] = envp[i];
-    }
-    new_envp[env_size] = strdup(ld_preload);
-    if (!new_envp[env_size]) {
-        perror("strdup failed");
-        free(new_envp);
-        return -1;
-    }
+    P("connect - TESTTEMP\n");
 
-    int result = real_execve(pathname, argv, new_envp);
-    perror("execve failed");
+    const sa_family_t* family = (const sa_family_t*)addr;
 
-    free(new_envp[env_size]);
-    free(new_envp);
-#endif
-    int result = real_execve(pathname, argv, envp);
-    return result;
+    if (*family == AF_INET && len >= sizeof(struct sockaddr_in)) {
+        const struct sockaddr_in* sin = (const struct sockaddr_in*)addr;
+        char ip[INET_ADDRSTRLEN] = {0};
+        inet_ntop(AF_INET, &(sin->sin_addr), ip, sizeof(ip));
+        uint16_t port = ntohs(sin->sin_port);
+        P("connect - Decoded sockaddr: IPv4 %s:%d\n", ip, port);
+    } else if (*family == AF_UNIX && len >= sizeof(sa_family_t) + 1) {
+        const struct sockaddr_un* sun = (const struct sockaddr_un*)addr;
+        P("connect - Decoded sockaddr: UNIX socket path: %s\n", sun->sun_path);
+    } else {
+        P("connect - Unknown or unsupported sockaddr family: %d\n", *family);
+    }
 }
-#endif
+
+int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen) {
+    P("connect - test");
+    P("intercepted CONNECT(%d, %p, %p) called by %s\n", sockfd, addr, addrlen, progname_safe);
+    decode_sockaddr(addr, addrlen); 
+
+    return real_connect(sockfd, addr, addrlen);
+}
 
 int __libc_start_main(
         int (*main_orig)(int, char **, char **),
@@ -208,6 +205,7 @@ int __libc_start_main(
         & SETUP_INJECT(execve)
         & SETUP_INJECT(__stat_time64)
         & SETUP_INJECT(fopen)
+	& SETUP_INJECT(connect)
     ) {
         is_injected = 1;
         if (argc && argv && *argv) {
