@@ -16,4 +16,7 @@ sudo chmod 777 squashfs_root_bb/tmp/log
 sudo mkdir -p squashfs_root_bb/tmp/cache/gui
 sudo chmod 777 squashfs_root_bb/tmp/cache
 
+sudo rm squashfs_root_bb/dev/console
+sudo touch squashfs_root_bb/dev/console
+sudo chmod 666 squashfs_root_bb/dev/console
 sudo ln -s /run/systemd/journal/dev-log squashfs_root_bb/dev/log
