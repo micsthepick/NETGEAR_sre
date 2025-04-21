@@ -6,3 +6,8 @@ IDEA: try to find out when/where it reads from that file:
         appears to be a dead end
 
 Perhaps default creds are no longer applicable?
+
+IDEA: SRE in ghidra
+    have finished a python script, this helped find the main handler, it now appears that the web server relies on config.so or whatever, which resloves config from a localhost socket 127.0.0.1:2303
+
+IDEA: what serves on localhost:2303?
