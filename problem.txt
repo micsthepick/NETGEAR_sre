@@ -8,6 +8,8 @@ IDEA: try to find out when/where it reads from that file:
 Perhaps default creds are no longer applicable?
 
 IDEA: SRE in ghidra
-    have finished a python script, this helped find the main handler, it now appears that the web server relies on config.so or whatever, which resloves config from a localhost socket 127.0.0.1:2303
+    have finished a python script, this helped find the main handler, it now appears that the web server relies on libconfig.so, which resloves config from a localhost socket 127.0.0.1:2313
 
-IDEA: what serves on localhost:2303?
+IDEA: what serves on localhost:2313?
+    turns out after grepping for the same instructions that populated param1 (r0) with 0x0909 for port 2313 and with 7f000001 for the ip, there's only 1 other binary than libconfig.so: datalib
+ 
