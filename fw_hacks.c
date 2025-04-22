@@ -156,7 +156,7 @@ FILE * fopen(const char *filename, const char *modes) {
     char *new_path = calloc(strlen(filename), sizeof(char));
     sanitize_path(new_path, filename);
 
-    FILE *res = real_fopen(filename, modes);
+    FILE *res = real_fopen(new_path, modes);
     free(new_path);
 
     checkerror();
