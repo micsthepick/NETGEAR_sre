@@ -98,7 +98,7 @@ void sanitize_path(char* new_path, const char* pathname) {
 }
 
 int open(const char *pathname, int flags, ...) {
-    P("OPEN(%s,...) called by %s\n", SS(pathname), progname);
+    P("intercepted open(%s,...) called by %s\n", SS(pathname), progname);
 
     if (!pathname) return real_open(pathname, flags);
 

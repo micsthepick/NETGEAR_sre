@@ -1,1 +1,2 @@
-gdb-multiarch -ex "set sysroot $(pwd)/squashfs_root_bb/" -ex "target remote :241" -ex "file squashfs_root_bb/fw_hacks.so"
+gdb-multiarch -nx -ex "set sysroot $(pwd)/squashfs_root_bb/" -ex "file squashfs_root_bb/lib/libc.so" -ex "target remote :241"
+
