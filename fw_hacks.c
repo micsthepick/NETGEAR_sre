@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -40,6 +41,9 @@ static char *progname = NULL;
 
 #define progname_safe (progname ? progname : "unknown program!")
 
+void checkerror() {
+    if (errno) P("errno: %d - %s", errno, strerror(errno));
+}
 
 void dbgprintstrp(char* const* strp, char * pre) {
     size_t strp_size = 0;
@@ -116,6 +120,8 @@ int open(const char *pathname, int flags, ...) {
         fd = real_open(new_path, flags);
     }
 
+    checkerror();
+
     free(new_path);
     return fd;
 }
@@ -137,6 +143,8 @@ int __stat_time64(const char *path, stat_t * buf) {
 
     int res = real___stat_time64(new_path, buf);
 
+    checkerror();
+
     free(new_path);
     return res;
 }
@@ -150,6 +158,8 @@ FILE * fopen(const char *filename, const char *modes) {
 
     FILE *res = real_fopen(filename, modes);
     free(new_path);
+
+    checkerror();
 
     return res;
 }
@@ -180,7 +190,11 @@ int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen) {
     P("intercepted connect(%d, %p, %p) called by %s\n", sockfd, addr, addrlen, progname_safe);
     decode_sockaddr(addr, addrlen); 
 
-    return real_connect(sockfd, addr, addrlen);
+    int res = real_connect(sockfd, addr, addrlen);
+
+    checkerror();
+
+    return res;
 }
 
 int __libc_start_main(
