@@ -42,7 +42,7 @@ static char *progname = NULL;
 #define progname_safe (progname ? progname : "unknown program!")
 
 void checkerror() {
-    if (errno) P("errno: %d - %s", errno, strerror(errno));
+    if (errno) P("errno: %d - %s\n", errno, strerror(errno));
 }
 
 void dbgprintstrp(char* const* strp, char * pre) {
