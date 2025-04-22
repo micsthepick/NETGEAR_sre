@@ -21,7 +21,6 @@
 
 #define P_TARGET stderr
 #define P(...) (fprintf(P_TARGET, "fw_hacks: "), fprintf(P_TARGET, __VA_ARGS__))
-#define SS(s) (s ? s : "<NULL>")
 
 #define SETUP_INJECT(f) (real_##f = dlsym(RTLD_NEXT, #f), (real_##f == 0) ? (P("%s failed to inject!\n", #f), 0) : 1)
 
@@ -31,15 +30,32 @@ static int (*real_main)() = NULL;
 static int (*real_open)() = NULL;
 static int (*real_execve)() = NULL;
 static int (*real_connect)() = NULL;
-static int (*real___stat_time64)(const char *, struct stat *) = NULL;
+static int (*real___stat_time64)() = NULL;
 static int (*real___libc_start_main)() = NULL;
+static int (*real_dni_strcmp_s)() = NULL;
 static FILE* (*real_fopen)() = NULL;
 
 static int is_injected = 0;
+static int enable_noisy = 0;
 
 static char *progname = NULL;
 
 #define progname_safe (progname ? progname : "unknown program!")
+
+
+char* SS(const char* s) {
+    if (!s) {
+       return "<NULL>";
+    };
+    if (strcmp(s, "<NULL>") == 0) {
+        return "this string used to be <NULL> including the braces";
+    };
+    return (char*)s;
+}
+
+int startswith(const char* str, const char* start) {
+    return strncmp(str, start, strlen(start));
+}
 
 void checkerror() {
     if (errno) P("errno: %d - %s\n", errno, strerror(errno));
@@ -61,6 +77,16 @@ void dbgprintargv(char* const* argv) {
     dbgprintstrp(argv, "argument");
 }
 
+void load_env_config(char** envp) {
+    if (!envp) return;
+    for (; *envp != NULL; envp++) {
+        if (!startswith(*envp, "FHACKS_NOISE")) enable_noisy=1;
+    }
+    if (enable_noisy) {
+        P("MAKING LOUD NOISES!\n");
+    }
+}
+
 int main_hook(int argc, char** argv, char** envp) {
     int res = -1;
 #if DEBUG_PRINTENV
@@ -69,6 +95,7 @@ int main_hook(int argc, char** argv, char** envp) {
 #if DEBUG_PRINTARG
     dbgprintargv(argv);
 #endif
+    load_env_config(envp);
     if (real_main) {
 	if (is_injected) {
             res = real_main(argc, argv, envp);
@@ -127,7 +154,7 @@ int open(const char *pathname, int flags, ...) {
 }
 
 long ptrace(int request, int pid, void *addr, void *data) {
-    P("intercepted ptrace(request={%d},pid={%d},=addr{%p},=data{%p} called by %s\n", request, pid, addr, data, progname_safe);
+    P("intercepted ptrace(request={%d},pid={%d},addr={%p},data={%p}) called by %s\n", request, pid, addr, data, progname_safe);
     return 0;
 }
 
@@ -197,6 +224,13 @@ int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen) {
     return res;
 }
 
+int dni_strcmp_s(char* func, unsigned int lineno, char * dest, unsigned int dmax, char * src) {
+    if (enable_noisy) {
+        P("intercepted dni_strcmp_s(caller=%s, call_lineno=%u, dest='%.64s', dmax=%u, src='%.64s') called by %s\n", func, lineno, SS(dest), dmax, SS(src), progname_safe);
+    }
+    real_dni_strcmp_s(func, lineno, dest, dmax, src);
+}
+
 int __libc_start_main(
         int (*main_orig)(int, char **, char **),
         int argc,
@@ -210,7 +244,7 @@ int __libc_start_main(
         P("cannot inject orig libc start main!!!");
 	return -1337;
     }
-    P("Injecting funcs.\n");
+    P("Injecting mandatory funcs.\n");
     if (
         SETUP_INJECT(open)
         & SETUP_INJECT(execve)
@@ -229,6 +263,8 @@ int __libc_start_main(
         P("Injection failed\n");
         is_injected = 0;
     }
+    P("Injecting optional.\n");
+    SETUP_INJECT(dni_strcmp_s);
     real_main = main_orig;
     return real___libc_start_main(main_hook, argc, argv, fini, rtld_fini, stack_end);
 }

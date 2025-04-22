@@ -13,3 +13,31 @@ IDEA: SRE in ghidra
 IDEA: what serves on localhost:2313?
     turns out after grepping for the same instructions that populated param1 (r0) with 0x0909 for port 2313 and with 7f000001 for the ip, there's only 1 other binary than libconfig.so: datalib
  
+sudo env CHROOTENV=FHACKS_NOISE=1 ./run_args.sh datalib Base
+fw_hacks: __libc_start_main()
+fw_hacks: Injecting mandatory funcs.
+fw_hacks: Injection sucess on datalib
+fw_hacks: Injecting optional.
+fw_hacks: argument: datalib
+fw_hacks: argument: Base
+fw_hacks: MAKING LOUD NOISES!
+fw_hacks: intercepted open(/tmp/cache/config_part,...) called by datalib
+fw_hacks: errno: 2 - No such file or directory
+fw_hacks: __libc_start_main()
+fw_hacks: Injecting mandatory funcs.
+fw_hacks: Injection sucess on /usr/sbin/part_dev
+fw_hacks: Injecting optional.
+fw_hacks: argument: /usr/sbin/part_dev
+fw_hacks: argument: config
+fw_hacks: MAKING LOUD NOISES!
+fw_hacks: intercepted fopen(/flash_type, r) called by /usr/sbin/part_dev
+fw_hacks: intercepted fopen(/proc/mtd, r) called by /usr/sbin/part_dev
+fw_hacks: SANITIZE_PATH: /proc/mtd -> /mtd
+fw_hacks: intercepted fopen(/sys/block/mmcblk0/mmcblk0p1/uevent, r) called by /usr/sbin/part_dev
+fw_hacks: intercepted dni_strcmp_s(caller=get_device_by_name_emmc, call_lineno=99, dest='config', dmax=32, src='config') called by /usr/sbin/part_dev
+fw_hacks: intercepted fopen(/tmp/cache/config_part, r) called by datalib
+fw_hacks: intercepted fopen(/dev/console, a) called by datalib
+fw_hacks: intercepted fopen(/flash_type, r) called by datalib
+fw_hacks: intercepted open(/dev/,...) called by datalib
+mtd: error!: "/dev/" is not a character device
+mtd: error!: mtd_get_dev_info failed
