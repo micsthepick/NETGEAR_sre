@@ -21,11 +21,29 @@ sudo mkdir -p squashfs_root_bb/tmp/cache/gui
 sudo chmod 777 squashfs_root_bb/tmp/cache
 
 echo -n "NAND" | sudo tee squashfs_root_bb/mtd > /dev/null
+
+sudo rm -rf squashfs_root_bb/sys/block/mmcblk0/
+
+#i=0
+
+#addpath () {
+#    sudo mkdir -p squashfs_root_bb/sys/block/mmcblk0/mmcblk0p$((i=i+1))
+#    echo -n "DEVNAME=$2\nPARTNAME=$1\n" | sudo tee squashfs_root_bb/sys/block/mmcblk0/mmcblk0p$i/uevent > /dev/null
+#}
+
 sudo mkdir -p squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1
-sudo mkdir -p squashfs_root_bb/sys/block/mmcblk0/mmcblk0p2
-echo -n "PARTNAME_config." | sudo tee squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1/uevent > /dev/null
-echo -n "PARTNAME_0:APPSBL." | sudo tee squashfs_root_bb/sys/block/mmcblk0/mmcblk0p2/uevent > /dev/null
-sudo touch squashfs_root_bb/sys/block/mmcblk0/mmcblk0p2/uevent
+
+addpath () {
+    echo -e -n "DEVNAME=$2\0\nPARTNAME=$1\n" | sudo tee -a squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1/uevent > /dev/null
+}
+
+for part in \
+0:APPSBL 0:APPSBLENV 0:ART 0:ART.bak config config.bak boarddata1 boarddata1.bak boarddata2 boarddata2.bak dnidata \
+firmware kernel rootfs firmware2 kernel2 rootfs2 language cert ntgrdata traffic_meter oopsdump pot pot.bak rae \
+vol_traffic vol_traffic.bak vol_oopsdump vol_rae vol_circle vol_ntgr vol_armor sstorage
+ do
+    addpath $part mtdpath/$part/
+done
 sudo rm squashfs_root_bb/dev/console
 sudo touch squashfs_root_bb/dev/console
 sudo chmod 666 squashfs_root_bb/dev/console

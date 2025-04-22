@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -26,14 +25,26 @@
 
 typedef struct stat stat_t;
 
-static int (*real_main)() = NULL;
-static int (*real_open)() = NULL;
-static int (*real_execve)() = NULL;
-static int (*real_connect)() = NULL;
-static int (*real___stat_time64)() = NULL;
-static int (*real___libc_start_main)() = NULL;
-static int (*real_dni_strcmp_s)() = NULL;
-static FILE* (*real_fopen)() = NULL;
+#define DECL_INJECT(typ, f) static typ (*real_##f)() = NULL
+
+DECL_INJECT(int, __libc_start_main);
+DECL_INJECT(int, main);
+
+// required injeets
+DECL_INJECT(int, open);
+DECL_INJECT(int, execve);
+DECL_INJECT(int, connect);
+DECL_INJECT(int, __stat_time64);
+DECL_INJECT(FILE*, fopen);
+DECL_INJECT(int, strlen);
+DECL_INJECT(int, strcmp);
+DECL_INJECT(int, strncmp);
+DECL_INJECT(char*, strdup);
+DECL_INJECT(char*, strerror);
+
+// optional injects
+DECL_INJECT(int, dni_strcmp_s);
+DECL_INJECT(int, dni_strnlen_s);
 
 static int is_injected = 0;
 static int enable_noisy = 0;
@@ -47,18 +58,18 @@ char* SS(const char* s) {
     if (!s) {
        return "<NULL>";
     };
-    if (strcmp(s, "<NULL>") == 0) {
+    if (real_strcmp(s, "<NULL>") == 0) {
         return "this string used to be <NULL> including the braces";
     };
     return (char*)s;
 }
 
 int startswith(const char* str, const char* start) {
-    return strncmp(str, start, strlen(start));
+    return real_strncmp(str, start, real_strlen(start));
 }
 
 void checkerror() {
-    if (errno) P("errno: %d - %s\n", errno, strerror(errno));
+    if (errno) P("errno: %d - %s\n", errno, real_strerror(errno));
 }
 
 void dbgprintstrp(char* const* strp, char * pre) {
@@ -117,15 +128,15 @@ void sanitize_path(char* new_path, const char* pathname) {
         while ('/' == pathname[1]) { pathname++; }
     }
     int doprint = 1;
-    if (strncmp(pathname, "/proc/mtd", 9) == 0 && (pathname[9] == '\0' || pathname[9] == '/')) {
+    if (real_strncmp(pathname, "/proc/mtd", 9) == 0 && (pathname[9] == '\0' || pathname[9] == '/')) {
         sprintf(new_path, "/mtd%s", pathname + 9);
-    } else if (strncmp(pathname, "/proc/device-tree", 17) == 0) {
+    } else if (real_strncmp(pathname, "/proc/device-tree", 17) == 0) {
         sprintf(new_path, "/device-tree%s", pathname + 5);
     } else {
 	    doprint = 0;
 	    sprintf(new_path, "%s", pathname);
     }
-    if (doprint) P("SANITIZE_PATH: %s -> %s\n", pathname, new_path);
+    if (doprint || enable_noisy) P("SANITIZE_PATH: %s -> %s\n", pathname, new_path);
 }
 
 int open(const char *pathname, int flags, ...) {
@@ -177,7 +188,9 @@ int __stat_time64(const char *path, stat_t * buf) {
 }
 
 FILE * fopen(const char *filename, const char *modes) {
-    P("intercepted fopen(%s, %s) called by %s\n", SS(filename), SS(modes), progname_safe);
+    if (enable_noisy) {
+        P("intercepted fopen(%s, %s) called by %s\n", SS(filename), SS(modes), progname_safe);
+    }
 
     if (!filename) return real_fopen(filename, modes);
     char *new_path = calloc(strlen(filename), sizeof(char));
@@ -224,11 +237,32 @@ int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen) {
     return res;
 }
 
+int strcmp(char* dest, char* src) {
+    if (enable_noisy) {
+        P("intercepted strcmp(dest='%.64s', src='%.64s') called by %s\n", SS(dest), SS(src), progname_safe);
+    }
+    return real_strcmp(dest, src);
+}
+
+int strncmp(char* dest, char* src, unsigned int n) {
+    if (enable_noisy) {
+        P("intercepted strncmp(dest='%.64s', src='%.64s', n=%u) called by %s\n", SS(dest), SS(src), n, progname_safe);
+    }
+    return real_strncmp(dest, src, n);
+}
+
+int dni_strnlen_s (char* func, unsigned int lineno, char * dest, unsigned int dmax) {
+    if (enable_noisy) {
+        P("intercepted dni_strnlen_s(caller=%s, call_lineno=%u, dest='%.64s', dmax=%u) called by %s\n", func, lineno, SS(dest), dmax, progname_safe);
+    }
+    return real_dni_strnlen_s(func, lineno, dest, dmax);
+}
+
 int dni_strcmp_s(char* func, unsigned int lineno, char * dest, unsigned int dmax, char * src) {
     if (enable_noisy) {
         P("intercepted dni_strcmp_s(caller=%s, call_lineno=%u, dest='%.64s', dmax=%u, src='%.64s') called by %s\n", func, lineno, SS(dest), dmax, SS(src), progname_safe);
     }
-    real_dni_strcmp_s(func, lineno, dest, dmax, src);
+    return real_dni_strcmp_s(func, lineno, dest, dmax, src);
 }
 
 int __libc_start_main(
@@ -248,14 +282,19 @@ int __libc_start_main(
     if (
         SETUP_INJECT(open)
         & SETUP_INJECT(execve)
+        & SETUP_INJECT(connect)
         & SETUP_INJECT(__stat_time64)
         & SETUP_INJECT(fopen)
-	& SETUP_INJECT(connect)
+        & SETUP_INJECT(strlen)
+        & SETUP_INJECT(strcmp)
+        & SETUP_INJECT(strncmp)
+        & SETUP_INJECT(strdup)
+        & SETUP_INJECT(strerror)
     ) {
         is_injected = 1;
         if (argc && argv && *argv) {
             P("Injection sucess on %s\n", *argv);
-	    progname = strdup(*argv);
+	    progname = real_strdup(*argv);
         } else {
             P("?? Injected without argv[0] or argc == 0\n");
         }
@@ -265,6 +304,7 @@ int __libc_start_main(
     }
     P("Injecting optional.\n");
     SETUP_INJECT(dni_strcmp_s);
+    SETUP_INJECT(dni_strnlen_s);
     real_main = main_orig;
     return real___libc_start_main(main_hook, argc, argv, fini, rtld_fini, stack_end);
 }
