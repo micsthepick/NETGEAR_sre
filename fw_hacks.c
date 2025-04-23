@@ -22,6 +22,10 @@
 #define DEBUG_PRINTARG 1
 #endif
 
+#ifndef FW_HACKS_ENV_VAR
+#define FW_HACKS_ENV_VAR "LD_PRELOAD=/fw_hacks.so"
+#endif
+
 #ifndef FWHACKS_OUTPUT_PATH
 #define FWHACKS_OUTPUT_PATH "/dev/fw_hacks_con"
 #endif
@@ -31,7 +35,10 @@
 #endif
 
 #define DUMMY_CONSOLE (FILE*)0x636f6e
- 
+#define DEVCONSOLE "/dev/console"
+#define DEVTTY "/dev/tty"
+#define DUMMY_CONSOLE_FD 99
+
 #define DECL_INJECT(typ, f) static typ (*real_##f)() = NULL
 
 DECL_INJECT(int, __libc_start_main);
@@ -39,6 +46,8 @@ DECL_INJECT(int, main);
 
 // required injeets
 DECL_INJECT(int, open);
+DECL_INJECT(int, close);
+DECL_INJECT(ssize_t, read);
 DECL_INJECT(int, printf);
 DECL_INJECT(int, fprintf);
 DECL_INJECT(int, vprintf);
@@ -47,12 +56,17 @@ DECL_INJECT(int, execve);
 DECL_INJECT(int, connect);
 DECL_INJECT(int, bind);
 DECL_INJECT(int, stat);
+DECL_INJECT(size_t, fwrite);
 DECL_INJECT(FILE*, fopen);
+DECL_INJECT(int, fputs);
+DECL_INJECT(int, fclose);
 DECL_INJECT(int, strlen);
 DECL_INJECT(int, strcmp);
 DECL_INJECT(int, strncmp);
 DECL_INJECT(char*, strdup);
 DECL_INJECT(char*, strerror);
+DECL_INJECT(ssize_t, sendto);
+DECL_INJECT(ssize_t, recvfrom);
 
 // optional injects
 DECL_INJECT(int, dni_strcmp_s);
@@ -61,7 +75,7 @@ DECL_INJECT(int, dni_strnlen_s);
 sem_t* sem_acquire()
 {
     sem_t* sem = sem_open(FWHACKS_PRINT_SEM_PATH, O_CREAT, 0666, 1);
-    if (sem == SEM_FAILED) {
+    if (SEM_FAILED == sem) {
         perror("sem_open");
         exit(1);
     }
@@ -90,18 +104,18 @@ int S(const char * file_desc, FILE * file, const char * format, va_list args)
     // aquire semphore for FIFO
     sem_t* sem = sem_acquire();
     int fifo = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY);
-    
+
     // output to FIFO
     dprintf(fifo, "%s: %d: ", file_desc, getpid());
     vdprintf(fifo, format, args);
     dprintf(fifo, "\n");
 
     // release semaphore
-    close(fifo);
+    real_close(fifo);
     sem_done(sem);
 
     int res = 0;
-    if (file != DUMMY_CONSOLE) real_vfprintf(file, format, args);
+    if (DUMMY_CONSOLE != file) real_vfprintf(file, format, args);
 
     return res;
 }
@@ -114,13 +128,13 @@ int P(const char * format, ...)
     // aquire semphore for FIFO
     sem_t* sem = sem_acquire();
     int fifo = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY);
-    
+
     // output to FIFO
     int res = dprintf(fifo, "fw_hacks: %d: ", getpid());
     res = vdprintf(fifo, format, args) && res;
 
     // release semaphore
-    close(fifo);
+    real_close(fifo);
     sem_done(sem);
 
     va_end(args);
@@ -146,7 +160,7 @@ char* SS(const char* s)
     if (!s) {
        return "<NULL>";
     };
-    if (real_strcmp(s, "<NULL>") == 0) {
+    if (0 == real_strcmp(s, "<NULL>")) {
         return "this string used to be <NULL> including the braces";
     };
     return (char*)s;
@@ -157,9 +171,12 @@ int startswith(const char* str, const char* start)
     return real_strncmp(str, start, real_strlen(start));
 }
 
-void checkerror()
+void checkerror(char* loc, char* data)
 {
-    if (errno) P("errno: %d - %s\n", errno, real_strerror(errno));
+    char empty[1] = "";
+    if (!data) data = empty;
+    if (9 == errno && 0 == real_strcmp("close", loc) && atoi(data) >= 13 && (!enable_noisy)) return;  // hackily ignore silly repeating errors
+    if (errno) P("errno from %s(%s): %d - %s\n", loc, data, errno, real_strerror(errno));
 }
 
 void dbgprintstrp(char* const* strp, char * pre)
@@ -203,12 +220,12 @@ int main_hook(int argc, char** argv, char** envp)
 #endif
     load_env_config(envp);
     if (real_main) {
-	if (is_injected) {
+    if (is_injected) {
             res = real_main(argc, argv, envp);
-	}
+    }
     } else {
          P("real main not found\n");
-	 res = -1337;
+     res = -1337;
     }
     return res;
 }
@@ -216,22 +233,81 @@ int main_hook(int argc, char** argv, char** envp)
 void sanitize_path(char* new_path, const char* pathname)
 {
     // keep the new_path <= the pathname in size if possible
-    if (pathname == NULL) {
+    if (NULL == pathname) {
         return;
     }
     if ('/' == *pathname) {
         while ('/' == pathname[1]) { pathname++; }
     }
     int doprint = 1;
-    if (real_strncmp(pathname, "/proc/mtd", 9) == 0 && (pathname[9] == '\0' || pathname[9] == '/')) {
+    if (0 == real_strncmp(pathname, "/proc/mtd", 9) && ('\0' == pathname[9] || '/' == pathname[9])) {
         sprintf(new_path, "/mtd%s", pathname + 9);
-    } else if (real_strncmp(pathname, "/proc/device-tree", 17) == 0) {
+    } else if (0 == real_strncmp(pathname, "/proc/device-tree", 17)) {
         sprintf(new_path, "/device-tree%s", pathname + 5);
+    } else if (0 == real_strncmp(pathname, "/proc/", 6)) {
+        char * pathname_checker = (char*)pathname+7;
+        while (*pathname_checker >= '0' && *pathname_checker <= '9')
+        {
+            pathname_checker++;
+        }
+        if (0 == real_strcmp(pathname_checker, "/as")) {
+            char * new_path_i = new_path;
+            for (char * c = (char *)pathname; c <= pathname_checker; c++) {
+                *(new_path_i++) = *c;
+            }
+            *(new_path_i++) = 'm';
+            *(new_path_i++) = 'e';
+            *(new_path_i++) = 'm';
+            *new_path_i = '\0';
+        }
     } else {
-	    doprint = 0;
-	    sprintf(new_path, "%s", pathname);
+        doprint = 0;
+        sprintf(new_path, "%s", pathname);
     }
     if (doprint || enable_noisy) P("SANITIZE_PATH: %s -> %s\n", pathname, new_path);
+}
+
+void vsyslog(int pri, char * fmt, ...)
+{
+    if (enable_noisy) {
+        P("intercepted vsyslog()\n");
+    }
+}
+
+ssize_t read(int fd,void* buf,size_t nbytes)
+{
+    if (enable_noisy) {
+        P("intercepted read(%d, void* buf, %u)\n", fd, nbytes);
+    }
+
+    int res = 0;
+    if (DUMMY_CONSOLE_FD == fd) {
+        return res;
+    }
+
+    res = real_read(fd);
+    char fd_str[40];
+    sprintf(fd_str, "%d, buf, %u", fd, nbytes);
+
+    checkerror("read", fd_str);
+    return res;
+}
+
+int close(int fd) {
+    if (enable_noisy) {
+        P("intercepted close(%d)\n", fd);
+    }
+    int res = 0;
+    if (DUMMY_CONSOLE_FD == fd) {
+        return res;
+    }
+
+    res = real_close(fd);
+    char fd_str[20];
+    sprintf(fd_str, "%d", fd);
+
+    checkerror("close", fd_str);
+    return res;
 }
 
 int open(const char *pathname, int flags, ...)
@@ -243,13 +319,11 @@ int open(const char *pathname, int flags, ...)
     char *new_path = calloc(strlen(pathname), sizeof(char));
     sanitize_path(new_path, pathname);
 
-    if (real_strncmp(pathname, "/dev/mtdpath", 12) == 0) {
-        // Simulate opening a character device
-        P("Pretending to open character device: %s\n", pathname);
-        return dup(0);  // Return a dummy valid file descriptor (stdin)
-    }
-
     int fd;
+    if (0 == real_strcmp(new_path, DEVCONSOLE) || 0 == real_strcmp(new_path, DEVTTY)) {
+        free(new_path);
+        return DUMMY_CONSOLE_FD;
+    }
     if (flags & (O_CREAT | O_TMPFILE)) {
         va_list args;
         va_start(args, flags);
@@ -257,11 +331,11 @@ int open(const char *pathname, int flags, ...)
         fd = real_open(new_path, flags, mode);
         va_end(args);
     } else {
+        errno = 0;
         fd = real_open(new_path, flags);
     }
 
-    checkerror();
-
+    checkerror("open", new_path);
     free(new_path);
     return fd;
 }
@@ -284,17 +358,7 @@ int stat(const char *path, stat_t * buf)
 
     int res = real_stat(new_path, buf);
 
-    if (real_strncmp(path, "/dev/mtdpath", 12) == 0) {
-        P("Pretending to see a character device: %s\n", path);
-        buf->st_mode = S_IFCHR | S_ISGID | 0666;
-        buf->st_rdev = makedev(90, 0);
-        buf->st_dev = makedev(0, 0);
-        buf->st_nlink = 1;
-        buf->st_uid = getuid();
-        buf->st_gid = getgid();
-    }
-    checkerror();
-
+    checkerror("stat", new_path);
     free(new_path);
     return res;
 }
@@ -302,19 +366,19 @@ int stat(const char *path, stat_t * buf)
 int vfprintf(FILE * file, const char * format, va_list args)
 {
     int res = 0;
-    if (file == stderr) {
+    if (stderr == file) {
         res = S("stderr", file, format, args);
     }
-    else if (file == stdout) {
+    else if (stdout == file) {
         res = S("stdout", file, format, args);
     }
-    else if (file == DUMMY_CONSOLE) {
+    else if (DUMMY_CONSOLE == file) {
         res = S("console", file, format, args);
     }
     return res;
 }
 
-int fputc(int c, FILE* file) 
+int fputc(int c, FILE* file)
 {
     va_list args = {};
     char str[2] = {(unsigned char)c, 0};
@@ -345,6 +409,22 @@ int printf(const char * format, ...) {
     return res;
 }
 
+size_t fwrite(const void * buf, size_t size, size_t n, FILE *f)
+{
+    if (enable_noisy) {
+        P("intercepted fwrite(buf=%p, sz=%u, n=%u, f=%p) called by %s\n", buf, size, n, f, progname_safe);
+    }
+    int res = 0;
+    if (DUMMY_CONSOLE == f) {
+        return res;
+    }
+
+    res = real_fwrite(f);
+    char desc[16];
+    sprintf(desc, "%p", f);
+    checkerror("fwrite", desc);
+}
+
 
 FILE * fopen(const char *filename, const char *modes)
 {
@@ -356,24 +436,112 @@ FILE * fopen(const char *filename, const char *modes)
     char *new_path = calloc(strlen(filename), sizeof(char));
     sanitize_path(new_path, filename);
 
-    if (real_strcmp(new_path, "/dev/console") == 0) {
+    if (0 == real_strcmp(new_path, DEVCONSOLE)  || 0 == real_strcmp(new_path, DEVTTY)) {
         free(new_path);
         return DUMMY_CONSOLE;
-        // return 'con' - don't open anything
     }
 
     FILE *res = real_fopen(new_path, modes);
     free(new_path);
-
-    checkerror();
-
+    checkerror("fopen", new_path);
     return res;
 }
 
-void decode_sockaddr(const void* addr, socklen_t len)
+int fclose(FILE * f)
+{
+    int res = 0;
+    if (DUMMY_CONSOLE == f) {
+        return res;
+    }
+
+    res = real_fclose(f);
+    char desc[16];
+    sprintf(desc, "%p", f);
+    checkerror("fclose", desc);
+}
+
+int fputs(const char * string, FILE * f)
+{
+    if (enable_noisy) {
+        P("intercepted fputs(%s, %p) called by %s\n", string, f, progname_safe);
+    }
+    int res = 0;
+    if (DUMMY_CONSOLE == f) {
+        return res;
+    }
+
+    res = real_fputs(f);
+    char desc[16];
+    sprintf(desc, "%p", f);
+    checkerror("fputs", desc);
+}
+
+int envp_does_not_have_fw_hacks(char ** const envp)
+{
+    for (int i = 0; envp[i] != NULL; i++) {
+        if (0 == real_strcmp(envp[i], FW_HACKS_ENV_VAR)) return 0;
+    }
+    return 1;
+}
+
+char** newenvp_with_fw_hacks(char** envp)
+{
+    char ** oldenv = envp;
+    int len = 0;
+    if (oldenv) {
+        while ((*oldenv) != 0)
+        {
+            oldenv++;
+            len++;
+        }
+    }
+    char ** newenvp = malloc((len+2)*sizeof(char*));
+    for (int i = 0; i < len; i++) {
+        newenvp[i] = oldenv[i];
+    }
+    newenvp[len] = real_strdup(FW_HACKS_ENV_VAR);
+    newenvp[len+1] = NULL;
+}
+
+int freeenv_injected(char** envp)
+{
+    char** envp_lastp = envp;
+    while (*(envp_lastp+1))
+    {
+        envp_lastp++;
+    }
+    free(*envp_lastp);
+    free(envp);
+}
+
+int execve(const char *pathname, char * const argv[], char * const envp[])
+{
+    char ** newenvp = (char**) envp;
+    int created_new_env = 0;
+    if (envp_does_not_have_fw_hacks(newenvp)) {
+        created_new_env = 1;
+        newenvp = newenvp_with_fw_hacks(newenvp);
+        P("execve DID NOT have my preload\n");
+    }
+    else {
+        if (enable_noisy) P("execve DID have my preload\n");
+    }
+    int res = real_execve(pathname, argv, newenvp);
+
+    if (created_new_env) freeenv_injected(newenvp);
+
+
+    char desc[1024];
+    sprintf(desc, "%s, argv=%p, env=%p", pathname, argv, newenvp);
+
+    checkerror("execve", desc);
+    return res;
+}
+
+void decode_sockaddr(const void* addr, socklen_t len, const char * src_call)
 {
     if (!addr || len < sizeof(sa_family_t)) {
-        P("connect() Invalid sockaddr (null or too small)\n");
+        P("%s() Invalid sockaddr (null or too small)\n", src_call);
         return;
     }
 
@@ -384,47 +552,84 @@ void decode_sockaddr(const void* addr, socklen_t len)
             struct sockaddr_in *a = (struct sockaddr_in *)addr;
             char ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &(a->sin_addr), ip, sizeof(ip));
-            P("connect: IPv4 to %s:%d\n", ip, ntohs(a->sin_port));
+            P("%s: IPv4 to %s:%d\n", src_call, ip, ntohs(a->sin_port));
             break;
         }
         case AF_INET6: {
             struct sockaddr_in6 *a6 = (struct sockaddr_in6 *)addr;
             char ip6[INET6_ADDRSTRLEN];
             inet_ntop(AF_INET6, &(a6->sin6_addr), ip6, sizeof(ip6));
-            P("connect: IPv6 to [%s]:%d\n", ip6, ntohs(a6->sin6_port));
+            P("%s: IPv6 to [%s]:%d\n", src_call, ip6, ntohs(a6->sin6_port));
             break;
         }
         case AF_UNIX: {
             struct sockaddr_un *u = (struct sockaddr_un *)addr;
-            P("connect: UNIX socket path: %s\n", u->sun_path);
+            P("%s: UNIX socket path: %s\n", src_call, u->sun_path);
             break;
         }
         default:
-            P("connect() Unknown or unsupported sockaddr family: %d\n", *family);
+            P("%s() Unknown or unsupported sockaddr family: %d\n", src_call, *family);
     }
 }
 
+
+ssize_t recvfrom(int sockfd, void* restrict buf, size_t buflen, int flags, struct sockaddr* restrict addr, socklen_t* restrict addrlen)
+{
+    if (enable_noisy) {
+        P("intercepted recvfrom(fd=%d, flags=%p, addr=%p, len=%p) called by %s\n", sockfd, flags, addr, addrlen, progname_safe);
+    }
+    int res = real_recvfrom(sockfd, buf, buflen, flags, addr, addrlen);
+
+    if (enable_noisy) {
+        if (addrlen) decode_sockaddr(addr, *addrlen, "recvfrom");
+    }
+
+    char fd_str[20];
+    sprintf(fd_str, "%d...", sockfd);
+    checkerror("recvfrom", fd_str);
+    return res;
+}
+
+
+ssize_t sendto(int sockfd, const void* buf, size_t buflen, int flags, const struct sockaddr* addr, socklen_t addrlen)
+{
+    if (enable_noisy) {
+        P("intercepted sendto(fd=%d, flags=%p, addr=%p, len=%p) called by %s\n", sockfd, flags, addr, addrlen, progname_safe);
+        decode_sockaddr(addr, addrlen, "sendto");
+    }
+    int res = real_sendto(sockfd, buf, buflen, flags, addr, addrlen);
+
+
+    char fd_str[20];
+    sprintf(fd_str, "%d...", sockfd);
+    checkerror("sendto", fd_str);
+    return res;
+}
+
+
 int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
 {
-    P("intercepted connect(%d, %p, %p) called by %s\n", sockfd, addr, addrlen, progname_safe);
-    decode_sockaddr(addr, addrlen); 
+    P("intercepted connect(fd=%d, addr=%p, len=%u) called by %s\n", sockfd, addr, addrlen, progname_safe);
+    decode_sockaddr(addr, addrlen, "connect");
 
     int res = real_connect(sockfd, addr, addrlen);
 
-    checkerror();
-
+    char fd_str[20];
+    sprintf(fd_str, "%d...", sockfd);
+    checkerror("connect", fd_str);
     return res;
 }
 
 int bind(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
 {
     P("intercepted bind(%d, %p, %p) called by %s\n", sockfd, addr, addrlen, progname_safe);
-    decode_sockaddr(addr, addrlen); 
+    decode_sockaddr(addr, addrlen, "connect");
 
     int res = real_bind(sockfd, addr, addrlen);
 
-    checkerror();
-
+    char fd_str[20];
+    sprintf(fd_str, "%d...", sockfd);
+    checkerror("bind", fd_str);
     return res;
 }
 
@@ -473,15 +678,20 @@ int __libc_start_main(
     SETUP_INJECT(fprintf);
     SETUP_INJECT(printf);
     SETUP_INJECT(open);
+    SETUP_INJECT(close);
     P("__libc_start_main()\n");
     real___libc_start_main = dlsym(RTLD_NEXT,"__libc_start_main");
     if (!real___libc_start_main ) {
         P("cannot inject orig libc start main!!!");
-	return -1337;
+    return -1337;
     }
     P("Injecting mandatory funcs.\n");
     if (
         INJECT_AND_CHECK(fopen)
+        & INJECT_AND_CHECK(fclose)
+        & INJECT_AND_CHECK(fwrite)
+        & INJECT_AND_CHECK(fputs)
+        & INJECT_AND_CHECK(read)
         & INJECT_AND_CHECK(execve)
         & INJECT_AND_CHECK(connect)
         & INJECT_AND_CHECK(bind)
@@ -491,11 +701,13 @@ int __libc_start_main(
         & INJECT_AND_CHECK(strncmp)
         & INJECT_AND_CHECK(strdup)
         & INJECT_AND_CHECK(strerror)
+        & INJECT_AND_CHECK(sendto)
+        & INJECT_AND_CHECK(recvfrom)
     ) {
         is_injected = 1;
         if (argc && argv && *argv) {
             P("Injection sucess on %s\n", *argv);
-	    progname = real_strdup(*argv);
+        progname = real_strdup(*argv);
         } else {
             P("?? Injected without argv[0] or argc == 0\n");
         }

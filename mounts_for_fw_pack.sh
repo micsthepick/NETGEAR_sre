@@ -14,3 +14,6 @@ sudo mount --bind /run/systemd/journal squashfs_root_bb/run/systemd/journal
 
 # debug FIFO so that we don't ruin command line output
 sudo mkfifo squashfs_root_bb/dev/fw_hacks_con
+
+# fake MTD flash
+sudo modprobe nandsim first_id_byte=0x20 second_id_byte=0xac third_id_byte=0x00 fourth_id_byte=0x15
