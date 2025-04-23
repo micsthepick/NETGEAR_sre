@@ -29,6 +29,8 @@
 #ifndef FWHACKS_PRINT_SEM_PATH
 #define FWHACKS_PRINT_SEM_PATH "/ntgr_hax_print_sem"
 #endif
+
+#define DUMMY_CONSOLE (FILE*)0x636f6e
  
 #define DECL_INJECT(typ, f) static typ (*real_##f)() = NULL
 
@@ -98,7 +100,8 @@ int S(const char * file_desc, FILE * file, const char * format, va_list args)
     close(fifo);
     sem_done(sem);
 
-    int res = real_vfprintf(file, format, args);
+    int res = 0;
+    if (file != DUMMY_CONSOLE) real_vfprintf(file, format, args);
 
     return res;
 }
@@ -296,7 +299,8 @@ int stat(const char *path, stat_t * buf)
     return res;
 }
 
-int vfprintf(FILE * file, const char * format, va_list args) {
+int vfprintf(FILE * file, const char * format, va_list args)
+{
     int res = 0;
     if (file == stderr) {
         res = S("stderr", file, format, args);
@@ -304,12 +308,24 @@ int vfprintf(FILE * file, const char * format, va_list args) {
     else if (file == stdout) {
         res = S("stdout", file, format, args);
     }
+    else if (file == DUMMY_CONSOLE) {
+        res = S("console", file, format, args);
+    }
     return res;
 }
 
-int vprintf(const char * format, va_list args) {
-    int res = S("stdout", stdout, format, args);
+int fputc(int c, FILE* file) 
+{
+    va_list args = {};
+    char str[2] = {(unsigned char)c, 0};
+    int res = vfprintf(file, str, args);
+    va_end(args);
     return res;
+}
+
+int vprintf(const char * format, va_list args)
+{
+    return vfprintf(stdout, format, args);
 }
 
 int fprintf(FILE * file, const char * format, ...) {
@@ -339,6 +355,12 @@ FILE * fopen(const char *filename, const char *modes)
     if (!filename) return real_fopen(filename, modes);
     char *new_path = calloc(strlen(filename), sizeof(char));
     sanitize_path(new_path, filename);
+
+    if (real_strcmp(new_path, "/dev/console") == 0) {
+        free(new_path);
+        return DUMMY_CONSOLE;
+        // return 'con' - don't open anything
+    }
 
     FILE *res = real_fopen(new_path, modes);
     free(new_path);
