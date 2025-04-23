@@ -19,22 +19,17 @@ sudo mkdir -p squashfs_root_bb/tmp/log/lighttpd
 sudo chmod 777 squashfs_root_bb/tmp/log
 sudo mkdir -p squashfs_root_bb/tmp/cache/gui
 sudo chmod 777 squashfs_root_bb/tmp/cache
+sudo touch squashfs_root_bb/tmp/cache/config_part
 
 echo -n "NAND" | sudo tee squashfs_root_bb/mtd > /dev/null
 
 sudo rm -rf squashfs_root_bb/sys/block/mmcblk0/
 
-#i=0
-
-#addpath () {
-#    sudo mkdir -p squashfs_root_bb/sys/block/mmcblk0/mmcblk0p$((i=i+1))
-#    echo -n "DEVNAME=$2\nPARTNAME=$1\n" | sudo tee squashfs_root_bb/sys/block/mmcblk0/mmcblk0p$i/uevent > /dev/null
-#}
-
 sudo mkdir -p squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1
 
 addpath () {
     echo -e -n "DEVNAME=$2\0\nPARTNAME=$1\n" | sudo tee -a squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1/uevent > /dev/null
+    sudo mkdir -p squashfs_root_bb/dev/$2
 }
 
 for part in \
@@ -48,3 +43,4 @@ sudo rm squashfs_root_bb/dev/console
 sudo touch squashfs_root_bb/dev/console
 sudo chmod 666 squashfs_root_bb/dev/console
 sudo ln -s /run/systemd/journal/dev-log squashfs_root_bb/dev/log 2> /dev/null
+

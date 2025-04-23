@@ -10,5 +10,7 @@ sudo mount --bind /dev/urandom squashfs_root_bb/dev/urandom
 sudo mount --bind /dev/random squashfs_root_bb/dev/random
 sudo mount --bind /proc squashfs_root_bb/proc
 sudo mount --bind /run/systemd/journal squashfs_root_bb/run/systemd/journal
-#wqsudo mount --bind /dev/tty squashfs_root_bb/dev/tty
+#sudo mount --bind /dev/tty squashfs_root_bb/dev/tty
 
+# debug FIFO so that we don't ruin command line output
+sudo mkfifo squashfs_root_bb/dev/fw_hacks_con

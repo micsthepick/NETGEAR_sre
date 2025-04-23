@@ -7,4 +7,5 @@ $gcc -g $CFLAGS -nostdlib \
   -nodefaultlibs \
   -isystem $MUSLHOME/arm-unknown-linux-musleabi/include \
   -L $MUSLHOME/arm-unknown-linux-musleabi/lib \
+  -lpthread \
   $CFLAGS -Werror ./fw_hacks.c -fPIC -shared -o ./fw_hacks.so
