@@ -115,7 +115,8 @@ int S(const char * file_desc, FILE * file, const char * format, va_list args)
     sem_done(sem);
 
     int res = 0;
-    if (DUMMY_CONSOLE != file) real_vfprintf(file, format, args);
+    if (DUMMY_CONSOLE == file) file = stdout;
+    real_vfprintf(file, format, args);
 
     return res;
 }
@@ -281,11 +282,11 @@ ssize_t read(int fd,void* buf,size_t nbytes)
     }
 
     int res = 0;
-    if (DUMMY_CONSOLE_FD == fd) {
-        return res;
+    if (DUMMY_CONSOLE_FD != fd)
+    {
+        res = real_read(fd);
     }
 
-    res = real_read(fd);
     char fd_str[40];
     sprintf(fd_str, "%d, buf, %u", fd, nbytes);
 
@@ -297,12 +298,12 @@ int close(int fd) {
     if (enable_noisy) {
         P("intercepted close(%d)\n", fd);
     }
+
     int res = 0;
-    if (DUMMY_CONSOLE_FD == fd) {
-        return res;
+    if (DUMMY_CONSOLE_FD != fd) {
+        res = real_close(fd);
     }
 
-    res = real_close(fd);
     char fd_str[20];
     sprintf(fd_str, "%d", fd);
 
@@ -414,12 +415,12 @@ size_t fwrite(const void * buf, size_t size, size_t n, FILE *f)
     if (enable_noisy) {
         P("intercepted fwrite(buf=%p, sz=%u, n=%u, f=%p) called by %s\n", buf, size, n, f, progname_safe);
     }
+
     int res = 0;
-    if (DUMMY_CONSOLE == f) {
-        return res;
+    if (DUMMY_CONSOLE != f) {
+        res = real_fwrite(f);
     }
 
-    res = real_fwrite(f);
     char desc[16];
     sprintf(desc, "%p", f);
     checkerror("fwrite", desc);
@@ -466,11 +467,11 @@ int fputs(const char * string, FILE * f)
         P("intercepted fputs(%s, %p) called by %s\n", string, f, progname_safe);
     }
     int res = 0;
-    if (DUMMY_CONSOLE == f) {
-        return res;
+    if (DUMMY_CONSOLE != f) {
+        res = real_fputs(f);
+    } else {
+        fprintf(f, string);
     }
-
-    res = real_fputs(f);
     char desc[16];
     sprintf(desc, "%p", f);
     checkerror("fputs", desc);
