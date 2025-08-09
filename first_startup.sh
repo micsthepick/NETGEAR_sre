@@ -2,7 +2,7 @@ if ! sudo echo first startup
 then
     echo must run with root
 fi
-test ! -e busybox-armv5l && sudo wget https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv5l
+test ! -e busybox-armv5l &&  echo please run sudo wget https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv5l && exit 1
 sudo cp busybox-armv5l squashfs_root_bb/bin/busybox
 sudo cp $(which qemu-arm-static) squashfs_root_bb/$(which qemu-arm-static)
 (sudo env SHELL=/bin/sh chroot squashfs_root_bb /bin/mknod -m 666 /dev/null c 1 3) 2> /dev/null

@@ -9,7 +9,7 @@ then
             sudo rm -r squashfs_root_bb/$fs
         fi
     done
-    sudo rm -r squashfs_root_bb || exit 1
+    sudo rm -rf squashfs_root_bb
     sudo mkdir -p squashfs_root_bb
     sudo tar xf squashfs.tar -C squashfs_root_bb
     sudo ./mounts_for_fw_pack.sh
