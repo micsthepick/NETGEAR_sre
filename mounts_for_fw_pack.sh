@@ -16,4 +16,13 @@ sudo mount --bind /run/systemd/journal squashfs_root_bb/run/systemd/journal
 sudo mkfifo squashfs_root_bb/dev/fw_hacks_con 2>/dev/null
 
 # fake MTD flash
+if ! modprobe -n nandsim &>/dev/null; then
+  echo "Module 'nandsim' not found or not available."
+  echo "Please install it and re-run this script."
+  echo "To install it on Arch Linux, run:"
+  echo "  sudo pacman -S linux-headers"
+  echo "On Debian/Ubuntu, run:"
+  echo "  sudo apt update && sudo apt install linux-modules-extra-$(uname -r)"
+  exit 1
+fi
 sudo modprobe nandsim first_id_byte=0x20 second_id_byte=0xac third_id_byte=0x00 fourth_id_byte=0x15
