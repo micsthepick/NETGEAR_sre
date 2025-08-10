@@ -1,0 +1,19 @@
+sudo env LOUD=1 QS=1 ./run_args.sh datalib Base
+
+qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+Loading data from " config_dev " ...
+
+datalib: mtd_read rlen < 0 ...
+
+datalib: header->magic is 0x0, not same as 0x1343b25...
+
+Fail!
+
+Resetting to default values ...
+
+The data center is Running ...
+
+
+dmesg shows: qemu-arm-static: part_dev: potentially unexpected fatal signal 11.
+
+running part_dev alone:
