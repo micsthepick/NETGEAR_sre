@@ -1,7 +1,7 @@
 [ -e "sqashfs.tar" ] && mv squashfs.tar squashfs.tar.bak
 if [ "$1" = "" ]
 then
-    echo "provide image file"
+    echo "this script expects 'squashfs.tar' to extract from"
     exit 1
 fi
 [ ! -e "_${1##*/}.extracted" ] && binwalk -e $1
