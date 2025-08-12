@@ -75,7 +75,7 @@ static int fw_hacks_output_fd = -1;
 static int get_fw_hacks_fd()
 {
     if (fw_hacks_output_fd < 0) {
-        fw_hacks_output_fd = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY | O_CREAT | O_APPEND, 0666);
+        fw_hacks_output_fd = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fw_hacks_output_fd < 0) {
             perror("FWHACKS: open output file");
             return -1;
@@ -91,7 +91,6 @@ int S(const char * file_desc, FILE * file, const char * format, va_list args)
         dprintf(fd, "%s: %d: ", file_desc, getpid());
         vdprintf(fd, format, args);
         dprintf(fd, "\n");
-        real_close(fd);
     }
 
     int res = 0;
@@ -112,7 +111,6 @@ int P(const char * format, ...)
         res = dprintf(fd, "fw_hacks: %d: ", getpid());
         res = vdprintf(fd, format, args) && res;
         dprintf(fd, "\n");
-        real_close(fd);
     }
 
     va_end(args);
@@ -713,6 +711,7 @@ int __libc_start_main(
     INJECT_AND_CHECK(dni_strnlen_s);
     real_main = main_orig;
     int res = real___libc_start_main(main_hook, argc, argv, fini, rtld_fini, stack_end);
+    if (fw_hacks_output_fd > 0) real_close(fw_hacks_output_fd);
     if (progname) free(progname);
     return res;
 }

@@ -34,7 +34,7 @@ if [ -e squashfs.tar ]; then
         fi
         must sudo rm -r "$CHROOT/proc"
     fi
-    for fs in random urandom tty pts ptmx consol fw_hacks_con log mtdpath ptmx; do
+    for fs in random urandom tty pts ptmx console fw_hacks_con log mtdpath ptmx; do
         if [ -e "$CHROOT/dev/$fs" ]; then
             if mountpoint -q "$CHROOT/dev/$fs"; then
                 must sudo umount "$CHROOT/dev/$fs"

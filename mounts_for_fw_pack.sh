@@ -39,7 +39,7 @@ ensure_block_devnode() {
 }
 
 bind_mount_char_dev() {
-  local target="$1$2"
+  local target="$2$1"
   [ -c "$1" ] || { echo "Not a char device: $1" >&2; return 2; }
   must mkdir -p "$(dirname "$target")"
   ensure_char_devnode "$1" "$target"
@@ -48,7 +48,7 @@ bind_mount_char_dev() {
 }
 
 bind_mount_block_dev() {
-  local target="$1$2"
+  local target="$2$1"
   [ -b "$1" ] || { echo "Not a block device: $1" >&2; return 2; }
   must mkdir -p "$(dirname "$target")"
   ensure_block_devnode "$1" "$target"
