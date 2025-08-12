@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <pthread.h>
+#include <sys/file.h>
 
 #ifndef DEBUG_PRINTENV
 #define DEBUG_PRINTENV 0
@@ -88,8 +89,10 @@ int fw_hacks_vfprintf(const char * file_desc, FILE * file, const char * format, 
 {
     int fd = get_fw_hacks_fd();
     if (fd >= 0) {
+        flock(fd, LOCK_EX);
         dprintf(fd, "%s: %d: ", file_desc, getpid());
         vdprintf(fd, format, args);
+        flock(fd, LOCK_UN);
     }
 
     int res = 0;
@@ -107,8 +110,10 @@ int fw_hacks_print(const char * format, ...)
     int fd = get_fw_hacks_fd();
     int res = 0;
     if (fd >= 0) {
+        flock(fd, LOCK_EX);
         res = dprintf(fd, "fw_hacks: %d: ", getpid());
         res = vdprintf(fd, format, args) && res;
+        flock(fd, LOCK_UN);
     }
 
     va_end(args);
@@ -186,6 +191,7 @@ void load_env_config(char** envp)
 
 int main_hook(int argc, char** argv, char** envp)
 {
+    fw_hacks_print("MAIN: %s\n", progname_safe);
     int res = -1;
 #if DEBUG_PRINTENV
     dbgprintenv(envp);
@@ -444,16 +450,16 @@ int fclose(FILE * f)
 int fputs(const char * string, FILE * f)
 {
     if (enable_noisy) {
-        fw_hacks_print("intercepted fputs(%s, %p) called by %s\n", string, f, progname_safe);
+        fw_hacks_print("intercepted fputs(\"%s\", %p) called by %s\n", string, f, progname_safe);
     }
     int res = 0;
-    if (DUMMY_CONSOLE != f) {
-        res = real_fputs(f);
-    } else {
+    if (DUMMY_CONSOLE == f) {
         fprintf(f, string);
+    } else {
+        res = real_fputs(string, f);
     }
-    char desc[16];
-    sprintf(desc, "%p", f);
+    char desc[MATHPATH+32];
+    sprintf(desc, "%p<-\"%s\"", f, string);
     checkerror("fputs", desc);
 }
 
