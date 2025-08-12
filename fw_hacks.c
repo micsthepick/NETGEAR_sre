@@ -91,13 +91,11 @@ static int get_fw_pty_master()
         close(master);
         exit(1);
     }
-    char *sn = ptsname(master);
-    if (!sn) {
-        perror("FWHACKS-ptsname");
+    if (ptsname_r(master, fw_pty_slave_name, sizeof(fw_pty_slave_name)) != 0) {
+        perror("FWHACKS-ptsname_r");
         close(master);
         exit(1);
     }
-    real_strncpy(fw_pty_slave_name, sn, sizeof(fw_pty_slave_name)-1);
     fw_pty_master_fd = master;
     // Optionally symlink slave to FWHACKS_OUTPUT_PATH for compatibility
     unlink(FWHACKS_OUTPUT_PATH);
