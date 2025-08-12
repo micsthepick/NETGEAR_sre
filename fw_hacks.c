@@ -150,7 +150,7 @@ void checkerror(char* loc, char* data)
     char empty[1] = "";
     if (!data) data = empty;
     if (9 == errno && 0 == real_strcmp("close", loc) && atoi(data) >= 13 && (!enable_noisy)) return;  // hackily ignore silly repeating errors
-    if (errno) fw_hacks_print("errno from %s(%s): %d - %s\n", loc, SS(data), errno, real_strerror(errno));
+    if (errno) fw_hacks_print("errno from %s(\"%s\"): %d - %s\n", loc, SS(data), errno, real_strerror(errno));
 }
 
 void dbgprintstrp(char* const* strp, char * pre)
@@ -293,7 +293,7 @@ int close(int fd) {
 
 int open(const char *pathname, int flags, ...)
 {
-    fw_hacks_print("intercepted open(%s,%p...) called by %s\n", SS(pathname), flags, progname);
+    fw_hacks_print("intercepted open(\"%s\",%p...) called by %s\n", SS(pathname), flags, progname);
 
     if (!pathname) return real_open(pathname, flags);
 
