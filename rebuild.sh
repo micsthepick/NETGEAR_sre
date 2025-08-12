@@ -28,12 +28,18 @@ if [ -e "$CHROOT/run/systemd/journal" ]; then
 fi
 
 if [ -e squashfs.tar ]; then
-    for fs in dev/random proc dev/urandom dev/tty dev/pts dev/ptmx dev/console dev/log dev/mtdpath dev/ptmx; do
-        if [ -e "$CHROOT/$fs" ]; then
-            if mountpoint -q "$CHROOT/$fs"; then
-                must sudo umount "$CHROOT/$fs"
+    if [ -e "$CHROOT/proc" ]; then
+        if mountpoint -q "$CHROOT/proc"; then
+            must sudo umount "$CHROOT/proc"
+        fi
+        must sudo rm -r "$CHROOT/proc"
+    fi
+    for fs in random urandom tty pts ptmx consol fw_hacks_con log mtdpath ptmx; do
+        if [ -e "$CHROOT/dev/$fs" ]; then
+            if mountpoint -q "$CHROOT/dev/$fs"; then
+                must sudo umount "$CHROOT/dev/$fs"
             fi
-            must sudo rm -r "$CHROOT/$fs"
+            must sudo rm -r "$CHROOT/dev/$fs"
         fi
     done
     must be_empty "$CHROOT/dev"
