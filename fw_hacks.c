@@ -12,8 +12,6 @@
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <pthread.h>
-#include <pty.h>
-#include <sys/types.h>
 
 #ifndef DEBUG_PRINTENV
 #define DEBUG_PRINTENV 0
@@ -72,46 +70,29 @@ DECL_INJECT(ssize_t, recvfrom);
 DECL_INJECT(int, dni_strcmp_s);
 DECL_INJECT(int, dni_strnlen_s);
 
-// PTY master fd and initialization
-static int fw_pty_master_fd = -1;
-static char fw_pty_slave_name[128] = {0};
+static int fw_hacks_output_fd = -1;
 
-static int get_fw_pty_master()
+static int get_fw_hacks_fd()
 {
-    if (fw_pty_master_fd >= 0) return fw_pty_master_fd;
-    int master;
-    char slave_name[128] = {0};
-    master = posix_openpt(O_RDWR | O_NOCTTY);
-    if (master < 0) {
-        perror("FWHACKS-posix_openpt");
-        exit(1);
+    if (fw_hacks_output_fd < 0) {
+        fw_hacks_output_fd = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY | O_CREAT | O_APPEND, 0666);
+        if (fw_hacks_output_fd < 0) {
+            perror("FWHACKS: open output file");
+            return -1;
+        }
     }
-    if (grantpt(master) < 0 || unlockpt(master) < 0) {
-        perror("FWHACKS-grantpt/unlockpt");
-        close(master);
-        exit(1);
-    }
-    if (ptsname_r(master, fw_pty_slave_name, sizeof(fw_pty_slave_name)) != 0) {
-        perror("FWHACKS-ptsname_r");
-        close(master);
-        exit(1);
-    }
-    fw_pty_master_fd = master;
-    // Optionally symlink slave to FWHACKS_OUTPUT_PATH for compatibility
-    unlink(FWHACKS_OUTPUT_PATH);
-    symlink(fw_pty_slave_name, FWHACKS_OUTPUT_PATH);
-    return fw_pty_master_fd;
+    return fw_hacks_output_fd;
 }
 
 int S(const char * file_desc, FILE * file, const char * format, va_list args)
 {
-    // Write to PTY instead of FIFO/semaphore
-    int pty_fd = get_fw_pty_master();
-
-    // output to PTY
-    dprintf(pty_fd, "%s: %d: ", file_desc, getpid());
-    vdprintf(pty_fd, format, args);
-    dprintf(pty_fd, "\n");
+    int fd = get_fw_hacks_fd();
+    if (fd >= 0) {
+        dprintf(fd, "%s: %d: ", file_desc, getpid());
+        vdprintf(fd, format, args);
+        dprintf(fd, "\n");
+        real_close(fd);
+    }
 
     int res = 0;
     if (DUMMY_CONSOLE == file) file = stdout;
@@ -125,11 +106,14 @@ int P(const char * format, ...)
     va_list args;
     va_start(args, format);
 
-    int pty_fd = get_fw_pty_master();
-
-    // output to PTY
-    int res = dprintf(pty_fd, "fw_hacks: %d: ", getpid());
-    res = vdprintf(pty_fd, format, args) && res;
+    int fd = get_fw_hacks_fd();
+    int res = 0;
+    if (fd >= 0) {
+        res = dprintf(fd, "fw_hacks: %d: ", getpid());
+        res = vdprintf(fd, format, args) && res;
+        dprintf(fd, "\n");
+        real_close(fd);
+    }
 
     va_end(args);
 
