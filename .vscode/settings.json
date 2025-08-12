@@ -1,14 +1,10 @@
 {
-    "files.associations": {
-        "*.jsfx": "Jesusonic",
-        "*.jsfx-inc": "Jesusonic",
-        "stdio.h": "c",
-        "fcntl.h": "c",
-        "dlfcn.h": "c",
-        "unistd.h": "c",
-        "stdlib.h": "c",
-        "features.h": "c",
-        "*.inc": "c",
-        "stat.h": "c"
+    "files.watcherExclude": {
+        "**/proc/**": true,
+        "**/sys/**": true
+    },
+    "files.exclude": {
+        "**/proc/**": true,
+        "**/sys/**": true
     }
 }

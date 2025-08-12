@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <dlfcn.h>
-#include <semaphore.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <sys/un.h>
@@ -13,6 +12,8 @@
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <pthread.h>
+#include <pty.h>
+#include <sys/types.h>
 
 #ifndef DEBUG_PRINTENV
 #define DEBUG_PRINTENV 0
@@ -30,9 +31,7 @@
 #define FWHACKS_OUTPUT_PATH "/dev/fw_hacks_con"
 #endif
 
-#ifndef FWHACKS_PRINT_SEM_PATH
-#define FWHACKS_PRINT_SEM_PATH "/ntgr_hax_print_sem"
-#endif
+#define MATHPATH 4096
 
 #define DUMMY_CONSOLE (FILE*)0x636f6e
 #define DEVCONSOLE "/dev/console"
@@ -63,6 +62,7 @@ DECL_INJECT(int, fclose);
 DECL_INJECT(int, strlen);
 DECL_INJECT(int, strcmp);
 DECL_INJECT(int, strncmp);
+DECL_INJECT(char*, strncpy);
 DECL_INJECT(char*, strdup);
 DECL_INJECT(char*, strerror);
 DECL_INJECT(ssize_t, sendto);
@@ -72,47 +72,48 @@ DECL_INJECT(ssize_t, recvfrom);
 DECL_INJECT(int, dni_strcmp_s);
 DECL_INJECT(int, dni_strnlen_s);
 
-sem_t* sem_acquire()
+// PTY master fd and initialization
+static int fw_pty_master_fd = -1;
+static char fw_pty_slave_name[128] = {0};
+
+static int get_fw_pty_master()
 {
-    sem_t* sem = sem_open(FWHACKS_PRINT_SEM_PATH, O_CREAT, 0666, 1);
-    if (SEM_FAILED == sem) {
-        perror("sem_open");
+    if (fw_pty_master_fd >= 0) return fw_pty_master_fd;
+    int master;
+    char slave_name[128] = {0};
+    master = posix_openpt(O_RDWR | O_NOCTTY);
+    if (master < 0) {
+        perror("FWHACKS-posix_openpt");
         exit(1);
     }
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += 2;
-    if (sem_timedwait(sem, &ts) == -1) {
-        real_fprintf(stderr, "SEMAPHORE ERROR: unlinking %s\n", FWHACKS_PRINT_SEM_PATH);
-        if (sem_unlink(FWHACKS_PRINT_SEM_PATH) == -1) {
-            perror("FATAL: couldn't remove sem!");
-            exit(4);
-        }
-        exit(3);
+    if (grantpt(master) < 0 || unlockpt(master) < 0) {
+        perror("FWHACKS-grantpt/unlockpt");
+        close(master);
+        exit(1);
     }
-    return sem;
-}
-
-void sem_done(sem_t* sem)
-{
-    sem_post(sem);
-    sem_close(sem);
+    char *sn = ptsname(master);
+    if (!sn) {
+        perror("FWHACKS-ptsname");
+        close(master);
+        exit(1);
+    }
+    real_strncpy(fw_pty_slave_name, sn, sizeof(fw_pty_slave_name)-1);
+    fw_pty_master_fd = master;
+    // Optionally symlink slave to FWHACKS_OUTPUT_PATH for compatibility
+    unlink(FWHACKS_OUTPUT_PATH);
+    symlink(fw_pty_slave_name, FWHACKS_OUTPUT_PATH);
+    return fw_pty_master_fd;
 }
 
 int S(const char * file_desc, FILE * file, const char * format, va_list args)
 {
-    // aquire semphore for FIFO
-    sem_t* sem = sem_acquire();
-    int fifo = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY);
+    // Write to PTY instead of FIFO/semaphore
+    int pty_fd = get_fw_pty_master();
 
-    // output to FIFO
-    dprintf(fifo, "%s: %d: ", file_desc, getpid());
-    vdprintf(fifo, format, args);
-    dprintf(fifo, "\n");
-
-    // release semaphore
-    real_close(fifo);
-    sem_done(sem);
+    // output to PTY
+    dprintf(pty_fd, "%s: %d: ", file_desc, getpid());
+    vdprintf(pty_fd, format, args);
+    dprintf(pty_fd, "\n");
 
     int res = 0;
     if (DUMMY_CONSOLE == file) file = stdout;
@@ -126,17 +127,11 @@ int P(const char * format, ...)
     va_list args;
     va_start(args, format);
 
-    // aquire semphore for FIFO
-    sem_t* sem = sem_acquire();
-    int fifo = real_open(FWHACKS_OUTPUT_PATH, O_WRONLY);
+    int pty_fd = get_fw_pty_master();
 
-    // output to FIFO
-    int res = dprintf(fifo, "fw_hacks: %d: ", getpid());
-    res = vdprintf(fifo, format, args) && res;
-
-    // release semaphore
-    real_close(fifo);
-    sem_done(sem);
+    // output to PTY
+    int res = dprintf(pty_fd, "fw_hacks: %d: ", getpid());
+    res = vdprintf(pty_fd, format, args) && res;
 
     va_end(args);
 
@@ -221,9 +216,9 @@ int main_hook(int argc, char** argv, char** envp)
 #endif
     load_env_config(envp);
     if (real_main) {
-    if (is_injected) {
+        if (is_injected) {
             res = real_main(argc, argv, envp);
-    }
+        }
     } else {
          P("real main not found\n");
      res = -1337;
@@ -233,7 +228,6 @@ int main_hook(int argc, char** argv, char** envp)
 
 void sanitize_path(char* new_path, const char* pathname)
 {
-    // keep the new_path <= the pathname in size if possible
     if (NULL == pathname) {
         return;
     }
@@ -241,12 +235,16 @@ void sanitize_path(char* new_path, const char* pathname)
         while ('/' == pathname[1]) { pathname++; }
     }
     int doprint = 1;
-    if (0 == real_strncmp(pathname, "/proc/mtd", 9) && ('\0' == pathname[9] || '/' == pathname[9])) {
-        sprintf(new_path, "/mtd%s", pathname + 9);
+    if (0 == real_strncmp(pathname, "/proc/mtd", 9)) {
+        if ('\0' == pathname[9]) {
+            sprintf(new_path, "/mtd/info");
+        } else {
+            sprintf(new_path, "/mtd/mtd%s", pathname + 9);
+        }
     } else if (0 == real_strncmp(pathname, "/proc/device-tree", 17)) {
         sprintf(new_path, "/device-tree%s", pathname + 5);
     } else if (0 == real_strncmp(pathname, "/proc/", 6)) {
-        char * pathname_checker = (char*)pathname+7;
+        char * pathname_checker = (char*)pathname+6;
         while (*pathname_checker >= '0' && *pathname_checker <= '9')
         {
             pathname_checker++;
@@ -260,6 +258,9 @@ void sanitize_path(char* new_path, const char* pathname)
             *(new_path_i++) = 'e';
             *(new_path_i++) = 'm';
             *new_path_i = '\0';
+        }
+        else {
+            sprintf(new_path, "%s", pathname);
         }
     } else {
         doprint = 0;
@@ -278,17 +279,17 @@ void vsyslog(int pri, char * fmt, ...)
 ssize_t read(int fd,void* buf,size_t nbytes)
 {
     if (enable_noisy) {
-        P("intercepted read(%d, void* buf, %u)\n", fd, nbytes);
+        P("intercepted read(%d, void* buf=%p, %u)\n", fd, buf, nbytes);
     }
 
     int res = 0;
     if (DUMMY_CONSOLE_FD != fd)
     {
-        res = real_read(fd);
+        res = real_read(fd, buf, nbytes);
     }
 
     char fd_str[40];
-    sprintf(fd_str, "%d, buf, %u", fd, nbytes);
+    sprintf(fd_str, "%d, buf=%p, %u", fd, buf, nbytes);
 
     checkerror("read", fd_str);
     return res;
@@ -313,11 +314,11 @@ int close(int fd) {
 
 int open(const char *pathname, int flags, ...)
 {
-    P("intercepted open(%s,...) called by %s\n", SS(pathname), progname);
+    P("intercepted open(%s,%p...) called by %s\n", SS(pathname), flags, progname);
 
     if (!pathname) return real_open(pathname, flags);
 
-    char *new_path = calloc(strlen(pathname), sizeof(char));
+    char *new_path = calloc(MATHPATH, sizeof(char));
     sanitize_path(new_path, pathname);
 
     int fd;
@@ -354,7 +355,7 @@ int stat(const char *path, stat_t * buf)
 
     if (!path) return real_stat(path, buf);
 
-    char *new_path = calloc(strlen(path), sizeof(char));
+    char *new_path = calloc(MATHPATH, sizeof(char));
     sanitize_path(new_path, path);
 
     int res = real_stat(new_path, buf);
@@ -434,7 +435,7 @@ FILE * fopen(const char *filename, const char *modes)
     }
 
     if (!filename) return real_fopen(filename, modes);
-    char *new_path = calloc(strlen(filename), sizeof(char));
+    char *new_path = calloc(MATHPATH, sizeof(char));
     sanitize_path(new_path, filename);
 
     if (0 == real_strcmp(new_path, DEVCONSOLE)  || 0 == real_strcmp(new_path, DEVTTY)) {
@@ -650,6 +651,14 @@ int strncmp(char* dest, char* src, unsigned int n)
     return real_strncmp(dest, src, n);
 }
 
+char* strncpy(char* dest, const char* src, size_t n)
+{
+    if (enable_noisy) {
+        P("intercepted strncpy(dest=%p, src='%.64s', n=%zu) called by %s\n", (void*)dest, SS(src), n, progname_safe);
+    }
+    return real_strncpy(dest, src, n);
+}
+
 int dni_strnlen_s (char* func, unsigned int lineno, char * dest, unsigned int dmax)
 {
     if (enable_noisy) {
@@ -700,6 +709,7 @@ int __libc_start_main(
         & INJECT_AND_CHECK(strlen)
         & INJECT_AND_CHECK(strcmp)
         & INJECT_AND_CHECK(strncmp)
+        & INJECT_AND_CHECK(strncpy)
         & INJECT_AND_CHECK(strdup)
         & INJECT_AND_CHECK(strerror)
         & INJECT_AND_CHECK(sendto)

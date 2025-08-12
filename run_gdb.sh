@@ -1,3 +1,3 @@
 test ! -z "$NOGDBINIT" && NOINIT="-nx"
-gdb-multiarch $NOINIT -ex "target remote :241" -ex jump_to_start.gdb $@
+sudo gdb-multiarch $NOINIT -x pre_debug.gdb -ex "target remote :241" -x jump_to_start.gdb $@
 

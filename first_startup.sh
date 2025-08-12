@@ -2,8 +2,7 @@ if ! sudo echo first startup
 then
     echo must run with root
 fi
-test ! -e busybox-armv5l &&  echo please run sudo wget https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv5l && exit 1
-sudo cp busybox-armv5l squashfs_root_bb/bin/busybox
+./install_dynamic_busybox.sh
 sudo cp $(which qemu-arm-static) squashfs_root_bb/$(which qemu-arm-static)
 (sudo env SHELL=/bin/sh chroot squashfs_root_bb /bin/mknod -m 666 /dev/null c 1 3) 2> /dev/null
 echo -n "Base" | sudo tee squashfs_root_bb/tmp/orbi_type > /dev/null
@@ -29,9 +28,9 @@ sudo mkdir -p squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1
 
 addpath () {
     echo -e -n "DEVNAME=$2/\nPARTNAME=$1\n" | sudo tee -a squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1/uevent > /dev/null
-    echo -n "$1" > sudo tee squashfs_root_bb/dev/$2 > /dev/null
     (sudo env SHELL=/bin/sh chroot squashfs_root_bb /bin/mknod -m 666 /dev/$2 c 90 0)
 }
+#echo -n "$1" | sudo tee squashfs_root_bb/dev/$2 > /dev/null
 
 for part in \
 0:APPSBL 0:APPSBLENV 0:ART 0:ART.bak config config.bak boarddata1 boarddata1.bak boarddata2 boarddata2.bak dnidata \
