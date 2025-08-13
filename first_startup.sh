@@ -32,6 +32,8 @@ addpath () {
     printf 'DEVNAME=%s/\nPARTNAME=%s\n' "$2" "$1" | sudo tee -a squashfs_root_bb/sys/block/mmcblk0/mmcblk0p1/uevent > /dev/null
 }
 
+must mkdir -p squashfs_root_bb/mtd
+
 addpart () {
     echo "mtd$2:\"$1\"" >> squashfs_root_bb/mtd/info
 }
