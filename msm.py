@@ -1,28 +1,22 @@
 import sys
 import struct
 
-def parse_msmptbl(filename):
+def parse_msmptbl(data):
     entry_size = 28
-    with open(filename, 'rb') as f:
-        data = f.read()
-
     num_entries = len(data) // entry_size
 
+    print('dev:"name"')
     for i in range(num_entries):
         entry = data[i*entry_size:(i+1)*entry_size]
-
-        # Parse fields
         name = entry[0:16].rstrip(b'\x00').decode('ascii', errors='ignore')
-        unk_x = struct.unpack('<I', entry[16:20])[0]
-        unk_y = struct.unpack('<I', entry[20:24])[0]
-        # flags = struct.unpack('<I', entry[24:28])[0]
-
         if name:
-            print(f'Partition {i=} {name=} {unk_x=} {unk_y=}')
+            print(f'mtd{i}:"{name}"')
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} msmptbl.bin")
-        sys.exit(1)
+    if len(sys.argv) > 1 and sys.argv[1] != '-':
+        with open(sys.argv[1], 'rb') as f:
+            data = f.read()
+    else:
+        data = sys.stdin.buffer.read()
 
-    parse_msmptbl(sys.argv[1])
+    parse_msmptbl(data)

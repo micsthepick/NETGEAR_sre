@@ -57,6 +57,7 @@ DECL_INJECT(int, stat);
 DECL_INJECT(size_t, fwrite);
 DECL_INJECT(FILE*, fopen);
 DECL_INJECT(int, fputs);
+DECL_INJECT(char*, fgets);
 DECL_INJECT(int, fclose);
 DECL_INJECT(int, strlen);
 DECL_INJECT(int, strcmp);
@@ -463,6 +464,16 @@ int fputs(const char * string, FILE * f)
     checkerror("fputs", desc);
 }
 
+char* fgets(char *str, int num, FILE *stream)
+{
+    if (enable_noisy) {
+        fw_hacks_print("intercepted fgets(\"%s\", %d, %p) called by %s\n", SS(str), num, stream, progname_safe);
+    }
+    char *res = real_fgets(str, num, stream);
+    checkerror("fgets", "...");
+    return res;
+}
+
 int envp_does_not_have_fw_hacks(char ** const envp)
 {
     for (int i = 0; envp[i] != NULL; i++) {
@@ -686,6 +697,7 @@ int __libc_start_main(
         & INJECT_AND_CHECK(fclose)
         & INJECT_AND_CHECK(fwrite)
         & INJECT_AND_CHECK(fputs)
+        & INJECT_AND_CHECK(fgets)
         & INJECT_AND_CHECK(read)
         & INJECT_AND_CHECK(execve)
         & INJECT_AND_CHECK(connect)

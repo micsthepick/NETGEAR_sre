@@ -1,13 +1,5 @@
 #!/bin/bash
-# note for Ubuntu: dash does NOT work
-must() {
-  "$@"
-  local status=$?
-  if [ $status -ne 0 ]; then
-    echo "Fatal: command failed with status $status: $*"
-    exit $status
-  fi
-}
+. ./common.sh
 
 ensure_char_devnode() {
   if [ -e "$1" ] && [ ! -c "$2" ]; then
@@ -84,7 +76,6 @@ CHROOT="squashfs_root_bb"
 sudo mkdir -p squashfs_root_bb/dev/log
 sudo mkdir -p squashfs_root_bb/run/systemd/journal
 must bind_mount_dir /proc "$CHROOT"
-must bind_mount_dir /run/systemd/journal "$CHROOT"
 
 # Create & mount character devices
 must bind_mount_char_dev /dev/tty "$CHROOT"
@@ -98,11 +89,3 @@ must mount_devpts /dev/pts "$CHROOT"
 if [ ! -e "$CHROOT/dev/ptmx" ]; then
   sudo chroot "$CHROOT" mknod -m 666 /dev/ptmx c 5 2
 fi
-
-./extract_part_table.sh
-# fake MTD flash
-sudo mkdir -p "$CHROOT/mtd"
-sudo cp msmptbl.bin "$CHROOT/mtd/info"
-#for i in {0..31}; do
-#    sudo touch "$CHROOT/mtd/mtd$i"
-#done

@@ -29,7 +29,7 @@ fi
 
 if [ -e squashfs.tar ]; then
     if [ -e "$CHROOT/proc" ]; then
-        if mountpoint -q "$CHROOT/proc"; then
+        if mountpoint -q -- "$CHROOT/proc"; then
             must sudo umount "$CHROOT/proc"
         fi
         must sudo rm -r "$CHROOT/proc"
