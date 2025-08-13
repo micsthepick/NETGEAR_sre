@@ -8,7 +8,7 @@ then
 fi
 must ./install_dynamic_busybox.sh
 must sudo cp $(which qemu-arm-static) squashfs_root_bb/$(which qemu-arm-static)
-(sudo env SHELL=/bin/sh chroot squashfs_root_bb /bin/mknod -m 666 /dev/null c 1 3) 2> /dev/null
+must sudo env SHELL=/bin/sh chroot squashfs_root_bb /bin/mknod -m 666 /dev/null c 1 3
 must echo -n "Base" | sudo tee squashfs_root_bb/tmp/orbi_type > /dev/null
 test ! -e squashfs_root_bb/lib/libc.so.bak && sudo mv squashfs_root_bb/lib/libc.so squashfs_root_bb/lib/libc.so.bak
 must sudo cp arm-unknown-linux-musleabi/arm-unknown-linux-musleabi/sysroot/usr/lib/libc.so squashfs_root_bb/lib/libc.so
