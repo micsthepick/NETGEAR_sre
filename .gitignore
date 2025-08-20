@@ -6,7 +6,8 @@
 *.gz
 *.img
 *musl*/
-*busybox*
+*busybox*/
+busybox*
 /obj
 *.obj
 *.a
